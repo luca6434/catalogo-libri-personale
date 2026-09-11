@@ -35,8 +35,20 @@ COLONNE = ['isbn', 'cognome1', 'cognome2', 'cognome3', 'nome1', 'nome2', 'nome3'
 def carica_dati():
     try:
         df = conn.read(spreadsheet=SPREADSHEET_URL, ttl=0)
-        if not df.empty and 'isbn' in df.columns:
-            df['isbn'] = df['isbn'].astype(str)
+        
+        # 1. Pulisce eventuali spazi invisibili dai titoli delle colonne letti da Google
+        df.columns = df.columns.str.strip()
+        
+        # 2. Filtra il foglio tenendo solo ed esclusivamente le nostre 22 colonne
+        colonne_valide = [c for c in COLONNE if c in df.columns]
+        
+        if not df.empty:
+            df = df[colonne_valide]
+            if 'isbn' in df.columns:
+                df['isbn'] = df['isbn'].astype(str)
+        else:
+            df = pd.DataFrame(columns=COLONNE)
+            
         return df
     except Exception as e:
         st.error(f"Errore di connessione a Google Sheets: {e}")
@@ -45,11 +57,19 @@ def carica_dati():
 def aggiungi_libro(dati_libro):
     df_corrente = carica_dati()
     
-    if str(dati_libro['isbn']) in df_corrente['isbn'].values:
+    # Controllo doppioni ISBN
+    if not df_corrente.empty and str(dati_libro['isbn']) in df_corrente['isbn'].values:
         return False, "Errore: ISBN già censito a sistema."
     
     nuovo_libro = pd.DataFrame([dati_libro])
     df_aggiornato = pd.concat([df_corrente, nuovo_libro], ignore_index=True)
+    
+    # 3. BLINDA LA STRUTTURA: Forza l'ordine esatto ed elimina qualsiasi colonna spuria
+    for col in COLONNE:
+        if col not in df_aggiornato.columns:
+            df_aggiornato[col] = None # Se una colonna sparisce, la ricrea vuota per non far crashare il sistema
+            
+    df_aggiornato = df_aggiornato[COLONNE]
     
     try:
         conn.update(worksheet="Foglio1", data=df_aggiornato, spreadsheet=SPREADSHEET_URL)
