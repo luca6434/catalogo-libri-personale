@@ -25,21 +25,17 @@ st.markdown("""
 
 # --- CONNESSIONE A GOOGLE SHEETS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Zn9mqWmS1KAlttSTr55lwA5eS_vjuHIPAh5qF3lMO_E/edit?usp=sharing" # Ricordati di rimettere il tuo URL!
+SPREADSHEET_URL = "INSERISCI_QUI_URL_DEL_TUO_FOGLIO_GOOGLE"
 
 COLONNE = ['isbn', 'cognome1', 'cognome2', 'cognome3', 'nome1', 'nome2', 'nome3', 
-           'titolo1', 'titolo2', 'editore', 'edi.', 'acq.', 'lingua', 
+           'titolo1', 'titolo2', 'editore', 'edi', 'acq', 'lingua', 
            'argomento1', 'argomento2', 'argomento3', 'luogo', 'stanza', 
-           'libreria', 'riga', 'colonna', 'note']
+           'libreria', 'riga', 'colonna', 'note1', 'note2']
 
 def carica_dati():
     try:
         df = conn.read(spreadsheet=SPREADSHEET_URL, ttl=0)
-        
-        # 1. Pulisce eventuali spazi invisibili dai titoli delle colonne letti da Google
         df.columns = df.columns.str.strip()
-        
-        # 2. Filtra il foglio tenendo solo ed esclusivamente le nostre 22 colonne
         colonne_valide = [c for c in COLONNE if c in df.columns]
         
         if not df.empty:
@@ -57,17 +53,15 @@ def carica_dati():
 def aggiungi_libro(dati_libro):
     df_corrente = carica_dati()
     
-    # Controllo doppioni ISBN
     if not df_corrente.empty and str(dati_libro['isbn']) in df_corrente['isbn'].values:
         return False, "Errore: ISBN già censito a sistema."
     
     nuovo_libro = pd.DataFrame([dati_libro])
     df_aggiornato = pd.concat([df_corrente, nuovo_libro], ignore_index=True)
     
-    # 3. BLINDA LA STRUTTURA: Forza l'ordine esatto ed elimina qualsiasi colonna spuria
     for col in COLONNE:
         if col not in df_aggiornato.columns:
-            df_aggiornato[col] = None # Se una colonna sparisce, la ricrea vuota per non far crashare il sistema
+            df_aggiornato[col] = None 
             
     df_aggiornato = df_aggiornato[COLONNE]
     
@@ -101,7 +95,59 @@ with tab1:
         if search_query:
             mask = df_filtrato.astype(str).apply(lambda x: x.str.lower().str.contains(search_query)).any(axis=1)
             df_filtrato = df_filtrato[mask]
-        st.dataframe(df_filtrato, use_container_width=True, hide_index=True)
+            
+        # Funzione per schiacciare testi multipli su più righe (saltando i vuoti)
+        def comprimi_su_righe(row, cols):
+            valori = [str(row[c]).strip() for c in cols if pd.notna(row[c]) and str(row[c]).strip() not in ["", "None", "nan"]]
+            return "\n".join(valori)
+            
+        # Costruzione del Dataframe "Visivo"
+        df_display = pd.DataFrame()
+        df_display['isbn'] = df_filtrato.get('isbn', '')
+        df_display['cognome'] = df_filtrato.apply(lambda r: comprimi_su_righe(r, ['cognome1', 'cognome2', 'cognome3']), axis=1)
+        df_display['nome'] = df_filtrato.apply(lambda r: comprimi_su_righe(r, ['nome1', 'nome2', 'nome3']), axis=1)
+        df_display['titolo1'] = df_filtrato.get('titolo1', '')
+        df_display['titolo2'] = df_filtrato.get('titolo2', '')
+        df_display['editore'] = df_filtrato.get('editore', '')
+        df_display['edi'] = df_filtrato.get('edi', '')
+        df_display['acq'] = df_filtrato.get('acq', '')
+        df_display['lingua'] = df_filtrato.get('lingua', '')
+        df_display['argomento1'] = df_filtrato.get('argomento1', '')
+        df_display['argomento2'] = df_filtrato.get('argomento2', '')
+        df_display['argomento3'] = df_filtrato.get('argomento3', '')
+        df_display['luogo'] = df_filtrato.get('luogo', '')
+        df_display['stanza'] = df_filtrato.get('stanza', '')
+        df_display['libreria'] = df_filtrato.get('libreria', '')
+        df_display['riga'] = df_filtrato.get('riga', '')
+        df_display['colonna'] = df_filtrato.get('colonna', '')
+        df_display['note'] = df_filtrato.apply(lambda r: comprimi_su_righe(r, ['note1', 'note2']), axis=1)
+
+        # Rendering della tabella (con i nomi colonna richiesti)
+        st.dataframe(
+            df_display, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "isbn": "Isbn",
+                "cognome": "cognome",
+                "nome": "nome",
+                "titolo1": "titolo(1)",
+                "titolo2": "titolo(2)",
+                "editore": "editore",
+                "edi": "edi.",
+                "acq": "Acq.",
+                "lingua": "Lingua",
+                "argomento1": "argomento",
+                "argomento2": "argomento",
+                "argomento3": "argomento",
+                "luogo": "luogo",
+                "stanza": "stanza",
+                "libreria": "libreria",
+                "riga": "riga",
+                "colonna": "colonna",
+                "note": "note"
+            }
+        )
     else:
         st.info("💡 Database vuoto.")
 
@@ -136,8 +182,8 @@ with tab2:
         with col_arg3: argomento3 = st.text_input("Argomento 3")
         
         col_d1, col_d2 = st.columns(2)
-        with col_d1: edi = st.date_input("Data Edizione (edi.)", datetime.date.today())
-        with col_d2: acq = st.date_input("Data Acquisto (acq.)", datetime.date.today())
+        with col_d1: edi = st.date_input("Data Edizione (edi)", datetime.date.today())
+        with col_d2: acq = st.date_input("Data Acquisto (acq)", datetime.date.today())
 
         st.subheader("Posizione Logistica")
         col_p1, col_p2, col_p3 = st.columns(3)
@@ -150,7 +196,9 @@ with tab2:
         with col_p3: 
             colonna = st.text_input("Colonna")
             
-        note = st.text_area("Note aggiuntive")
+        st.subheader("Note Aggiuntive")
+        note1 = st.text_area("Note 1 (Opzionale)")
+        note2 = st.text_area("Note 2 (Opzionale)")
         
         submit = st.form_submit_button("➕ Salva nel Cloud", use_container_width=True)
         
@@ -161,15 +209,16 @@ with tab2:
                 dati_libro = {
                     'isbn': str(isbn), 'cognome1': cognome1, 'cognome2': cognome2, 'cognome3': cognome3,
                     'nome1': nome1, 'nome2': nome2, 'nome3': nome3, 'titolo1': titolo1, 'titolo2': titolo2,
-                    'editore': editore, 'edi.': str(edi), 'acq.': str(acq), 'lingua': lingua,
+                    'editore': editore, 'edi': str(edi), 'acq': str(acq), 'lingua': lingua,
                     'argomento1': argomento1, 'argomento2': argomento2, 'argomento3': argomento3,
-                    'luogo': luogo, 'stanza': stanza, 'libreria': libreria, 'riga': riga, 'colonna': colonna, 'note': note
+                    'luogo': luogo, 'stanza': stanza, 'libreria': libreria, 'riga': riga, 'colonna': colonna, 
+                    'note1': note1, 'note2': note2
                 }
                 successo, msg = aggiungi_libro(dati_libro)
                 if successo: st.success(f"✅ {msg}")
                 else: st.error(f"❌ {msg}")
 
-# --- TAB 3: CARICA DA PDF (Testo) ---
+# --- TAB 3: CARICA DA PDF ---
 with tab3:
     st.info("Funzionalità in attesa di implementazione logica estrazione ISBN.")
     uploaded_file = st.file_uploader("Seleziona PDF", type="pdf")
