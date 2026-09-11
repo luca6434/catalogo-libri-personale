@@ -29,7 +29,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 # URL del tuo foglio (sostituisci questo URL con quello del tuo Google Sheet)
 # Esempio: "https://docs.google.com/spreadsheets/d/1abcxyz..."
-SPREADSHEET_URL = "INSERISCI_QUI_URL_DEL_TUO_FOGLIO_GOOGLE"
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Zn9mqWmS1KAlttSTr55lwA5eS_vjuHIPAh5qF3lMO_E/edit?usp=sharing"
 
 def carica_dati():
     # Legge i dati dal foglio. 'ttl=0' disattiva la cache per forzare l'aggiornamento
