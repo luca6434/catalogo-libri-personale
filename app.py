@@ -24,42 +24,33 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- CONNESSIONE A GOOGLE SHEETS ---
-# Creiamo l'oggetto di connessione globale
 conn = st.connection("gsheets", type=GSheetsConnection)
+SPREADSHEET_URL = "INSERISCI_QUI_URL_DEL_TUO_FOGLIO_GOOGLE" # Ricordati di rimettere il tuo URL!
 
-# URL del tuo foglio (sostituisci questo URL con quello del tuo Google Sheet)
-# Esempio: "https://docs.google.com/spreadsheets/d/1abcxyz..."
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Zn9mqWmS1KAlttSTr55lwA5eS_vjuHIPAh5qF3lMO_E/edit?usp=sharing"
+COLONNE = ['isbn', 'cognome1', 'cognome2', 'cognome3', 'nome1', 'nome2', 'nome3', 
+           'titolo1', 'titolo2', 'editore', 'edi.', 'acq.', 'lingua', 
+           'argomento1', 'argomento2', 'argomento3', 'luogo', 'stanza', 
+           'libreria', 'riga', 'colonna', 'note']
 
 def carica_dati():
-    # Legge i dati dal foglio. 'ttl=0' disattiva la cache per forzare l'aggiornamento
     try:
         df = conn.read(spreadsheet=SPREADSHEET_URL, ttl=0)
-        # Convertiamo la colonna isbn in stringa per evitare problemi di formattazione
-        df['isbn'] = df['isbn'].astype(str)
+        if not df.empty and 'isbn' in df.columns:
+            df['isbn'] = df['isbn'].astype(str)
         return df
     except Exception as e:
         st.error(f"Errore di connessione a Google Sheets: {e}")
-        # Ritorna un dataframe vuoto con le colonne corrette in caso di errore
-        return pd.DataFrame(columns=["isbn", "titolo", "nome_autore", "cognome_autore", "data_acquisto", "data_edizione", "tipologia", "argomento", "posizione", "luogo_acquisto"])
+        return pd.DataFrame(columns=COLONNE)
 
-def aggiungi_libro(isbn, titolo, nome, cognome, d_acq, d_ed, tipo, arg, pos, luogo):
+def aggiungi_libro(dati_libro):
     df_corrente = carica_dati()
     
-    # Controlla l'unicità dell'ISBN
-    if str(isbn) in df_corrente['isbn'].values:
-        return False, "Errore: ISBN già censito a sistema. Operazione annullata."
+    if str(dati_libro['isbn']) in df_corrente['isbn'].values:
+        return False, "Errore: ISBN già censito a sistema."
     
-    nuovo_libro = pd.DataFrame([{
-        "isbn": str(isbn), "titolo": titolo, "nome_autore": nome, "cognome_autore": cognome,
-        "data_acquisto": d_acq, "data_edizione": d_ed, "tipologia": tipo, 
-        "argomento": arg, "posizione": pos, "luogo_acquisto": luogo
-    }])
-    
-    # Unisce il nuovo libro ai dati esistenti
+    nuovo_libro = pd.DataFrame([dati_libro])
     df_aggiornato = pd.concat([df_corrente, nuovo_libro], ignore_index=True)
     
-    # Scrive i dati aggiornati sul foglio di calcolo
     try:
         conn.update(worksheet="Foglio1", data=df_aggiornato, spreadsheet=SPREADSHEET_URL)
         return True, "Libro inserito correttamente a sistema."
@@ -68,7 +59,6 @@ def aggiungi_libro(isbn, titolo, nome, cognome, d_acq, d_ed, tipo, arg, pos, luo
 
 # --- HEADER DELL'APPLICAZIONE ---
 st.title("📘 Sistema di Gestione Libreria (Cloud Edition)")
-st.markdown("Pannello di controllo collegato a Google Sheets per il salvataggio permanente.")
 st.divider()
 
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard & Ricerca", "📝 Inserimento Manuale", "📂 Importazione Massiva (PDF)"])
@@ -78,22 +68,17 @@ with tab1:
     df_libri = carica_dati()
     
     if not df_libri.empty:
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1, col_m2, col_m3 = st.columns(3)
         with col_m1: st.metric(label="Totale Volumi", value=len(df_libri))
-        with col_m2: st.metric(label="Autori in Catalogo", value=df_libri['cognome_autore'].nunique())
-        with col_m3: st.metric(label="Totale Saggi", value=len(df_libri[df_libri['tipologia'] == 'Saggio']))
-        with col_m4: st.metric(label="Ultimo acquisto", value=df_libri['data_acquisto'].max() if not df_libri['data_acquisto'].empty else "N/A")
+        with col_m2: st.metric(label="Autori Principali", value=df_libri['cognome1'].nunique())
+        with col_m3: st.metric(label="Sedi Utilizzate", value=df_libri['luogo'].nunique())
     
     st.markdown("### 🔍 Esplora Catalogo")
-    col_search, col_filter = st.columns([3, 1])
-    with col_search: search_query = st.text_input("Ricerca...", placeholder="Filtra...").lower()
-    with col_filter: filtro_tipo = st.selectbox("Filtra Tipologia", ["Tutte", "Manuale", "Saggio", "Romanzo", "Fumetto", "Altro"])
+    search_query = st.text_input("Ricerca libera (Titolo, Autore, ISBN, Luogo...)", placeholder="Inizia a digitare...").lower()
     
     if not df_libri.empty:
         df_filtrato = df_libri.copy()
-        if filtro_tipo != "Tutte": df_filtrato = df_filtrato[df_filtrato['tipologia'] == filtro_tipo]
         if search_query:
-            # Ricerca su tutte le colonne convertite in stringa
             mask = df_filtrato.astype(str).apply(lambda x: x.str.lower().str.contains(search_query)).any(axis=1)
             df_filtrato = df_filtrato[mask]
         st.dataframe(df_filtrato, use_container_width=True, hide_index=True)
@@ -103,29 +88,70 @@ with tab1:
 # --- TAB 2: AGGIUNGI LIBRO (FORM) ---
 with tab2:
     with st.form("form_aggiunta", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1: isbn = st.text_input("Codice ISBN *"); titolo = st.text_input("Titolo *")
-        with col2: nome_autore = st.text_input("Nome"); cognome_autore = st.text_input("Cognome")
+        st.subheader("Dati Principali")
+        isbn = st.text_input("Codice ISBN *")
+        col_t1, col_t2 = st.columns(2)
+        with col_t1: titolo1 = st.text_input("Titolo 1 *")
+        with col_t2: titolo2 = st.text_input("Titolo 2")
         
-        st.divider()
-        col3, col4, col5 = st.columns(3)
-        with col3: tipo = st.selectbox("Categoria", ["Manuale", "Saggio", "Romanzo", "Fumetto", "Altro"]); arg = st.text_input("Argomento")
-        with col4: d_ed = st.date_input("Edizione", datetime.date.today()); d_acq = st.date_input("Acquisto", datetime.date.today())
-        with col5: luogo = st.selectbox("Luogo", ["MI", "ME", "ST"]); pos = st.text_input("Posizione")
+        col_e1, col_e2 = st.columns(2)
+        with col_e1: editore = st.text_input("Editore")
+        with col_e2: lingua = st.text_input("Lingua")
+
+        st.subheader("Autori")
+        col_a1, col_a2 = st.columns(2)
+        with col_a1:
+            nome1 = st.text_input("Nome 1")
+            nome2 = st.text_input("Nome 2")
+            nome3 = st.text_input("Nome 3")
+        with col_a2:
+            cognome1 = st.text_input("Cognome 1")
+            cognome2 = st.text_input("Cognome 2")
+            cognome3 = st.text_input("Cognome 3")
+
+        st.subheader("Classificazione & Date")
+        col_arg1, col_arg2, col_arg3 = st.columns(3)
+        with col_arg1: argomento1 = st.text_input("Argomento 1")
+        with col_arg2: argomento2 = st.text_input("Argomento 2")
+        with col_arg3: argomento3 = st.text_input("Argomento 3")
+        
+        col_d1, col_d2 = st.columns(2)
+        with col_d1: edi = st.date_input("Data Edizione (edi.)", datetime.date.today())
+        with col_d2: acq = st.date_input("Data Acquisto (acq.)", datetime.date.today())
+
+        st.subheader("Posizione Logistica")
+        col_p1, col_p2, col_p3 = st.columns(3)
+        with col_p1: 
+            luogo = st.selectbox("Luogo", ["MI", "ME", "ST"])
+            stanza = st.text_input("Stanza")
+        with col_p2: 
+            libreria = st.text_input("Libreria")
+            riga = st.text_input("Riga")
+        with col_p3: 
+            colonna = st.text_input("Colonna")
+            
+        note = st.text_area("Note aggiuntive")
         
         submit = st.form_submit_button("➕ Salva nel Cloud", use_container_width=True)
         
         if submit:
-            if not isbn or not titolo:
-                st.error("⚠️ ISBN e Titolo obbligatori.")
+            if not isbn or not titolo1:
+                st.error("⚠️ ISBN e Titolo 1 sono obbligatori.")
             else:
-                successo, msg = aggiungi_libro(isbn, titolo, nome_autore, cognome_autore, str(d_acq), str(d_ed), tipo, arg, pos, luogo)
+                dati_libro = {
+                    'isbn': str(isbn), 'cognome1': cognome1, 'cognome2': cognome2, 'cognome3': cognome3,
+                    'nome1': nome1, 'nome2': nome2, 'nome3': nome3, 'titolo1': titolo1, 'titolo2': titolo2,
+                    'editore': editore, 'edi.': str(edi), 'acq.': str(acq), 'lingua': lingua,
+                    'argomento1': argomento1, 'argomento2': argomento2, 'argomento3': argomento3,
+                    'luogo': luogo, 'stanza': stanza, 'libreria': libreria, 'riga': riga, 'colonna': colonna, 'note': note
+                }
+                successo, msg = aggiungi_libro(dati_libro)
                 if successo: st.success(f"✅ {msg}")
                 else: st.error(f"❌ {msg}")
 
 # --- TAB 3: CARICA DA PDF (Testo) ---
 with tab3:
-    st.info("Funzionalità temporanea: il PDF viene letto ma i dati non vengono inseriti in Google Sheets.")
+    st.info("Funzionalità in attesa di implementazione logica estrazione ISBN.")
     uploaded_file = st.file_uploader("Seleziona PDF", type="pdf")
     if uploaded_file:
         reader = PdfReader(uploaded_file)
