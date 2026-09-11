@@ -78,6 +78,7 @@ st.divider()
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard & Ricerca", "📝 Inserimento Manuale", "📂 Importazione Massiva (PDF)"])
 
 # --- TAB 1: RICERCA E DASHBOARD ---
+# --- TAB 1: RICERCA E DASHBOARD ---
 with tab1:
     df_libri = carica_dati()
     
@@ -96,10 +97,16 @@ with tab1:
             mask = df_filtrato.astype(str).apply(lambda x: x.str.lower().str.contains(search_query)).any(axis=1)
             df_filtrato = df_filtrato[mask]
             
-        # Funzione per schiacciare testi multipli su più righe (saltando i vuoti)
+        # Funzione per formattare testi multipli su più righe
         def comprimi_su_righe(row, cols):
             valori = [str(row[c]).strip() for c in cols if pd.notna(row[c]) and str(row[c]).strip() not in ["", "None", "nan"]]
-            return "\n".join(valori)
+            if len(valori) == 0:
+                return ""
+            elif len(valori) == 1:
+                return valori[0]
+            else:
+                # Aggiunge un punto elenco e un a capo per separare visivamente ogni voce
+                return "\n".join([f"• {v}" for v in valori])
             
         # Costruzione del Dataframe "Visivo"
         df_display = pd.DataFrame()
@@ -122,7 +129,7 @@ with tab1:
         df_display['colonna'] = df_filtrato.get('colonna', '')
         df_display['note'] = df_filtrato.apply(lambda r: comprimi_su_righe(r, ['note1', 'note2']), axis=1)
 
-        # Rendering della tabella (con i nomi colonna richiesti)
+        # Rendering della tabella con i titoli colonne richiesti
         st.dataframe(
             df_display, 
             use_container_width=True, 
