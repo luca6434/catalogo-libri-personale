@@ -3,6 +3,7 @@ import pandas as pd
 from PyPDF2 import PdfReader
 import datetime
 from streamlit_gsheets import GSheetsConnection
+import re
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Gestione Catalogo Libri", page_icon="📘", layout="wide")
@@ -227,8 +228,43 @@ with tab2:
 
 # --- TAB 3: CARICA DA PDF ---
 with tab3:
-    st.info("Funzionalità in attesa di implementazione logica estrazione ISBN.")
-    uploaded_file = st.file_uploader("Seleziona PDF", type="pdf")
-    if uploaded_file:
-        reader = PdfReader(uploaded_file)
-        st.text("\n".join(page.extract_text() for page in reader.pages))
+    st.markdown("### 📂 Importazione Automatica ISBN")
+    st.markdown("Carica un PDF. Il sistema analizzerà il testo grezzo usando espressioni regolari per isolare i codici ISBN all'interno del documento.")
+    
+    uploaded_file = st.file_uploader("Seleziona File (.pdf)", type="pdf")
+    
+    if uploaded_file is not None:
+        with st.spinner("Analisi del documento in corso..."):
+            try:
+                reader = PdfReader(uploaded_file)
+                testo_estratto = ""
+                for page in reader.pages:
+                    testo_estratto += page.extract_text() + "\n"
+                
+                # 1. Pulizia: rimuoviamo trattini e spazi per uniformare la ricerca
+                testo_pulito = testo_estratto.replace("-", "").replace(" ", "")
+                
+                # 2. Regex: Cerca sequenze di 13 cifre (inizio 978/979) o 10 cifre
+                pattern_isbn = r'(?:97[89])?\d{9}[\dX]'
+                isbn_trovati = re.findall(pattern_isbn, testo_pulito, re.IGNORECASE)
+                
+                # 3. Elimina i doppioni generati leggendo più pagine
+                isbn_unici = list(set(isbn_trovati))
+                
+                if isbn_unici:
+                    st.success(f"✅ Analisi completata: trovati {len(isbn_unici)} codici ISBN unici!")
+                    
+                    # Creiamo una tabella temporanea per mostrarli
+                    df_trovati = pd.DataFrame(isbn_unici, columns=["ISBN Rilevati"])
+                    st.dataframe(df_trovati, use_container_width=True)
+                    
+                    st.info("💡 Questi codici sono pronti per essere elaborati.")
+                    
+                    with st.expander("Visualizza il testo grezzo (Debug)"):
+                        st.text(testo_estratto)
+                        
+                else:
+                    st.warning("⚠️ Nessun codice ISBN valido rilevato all'interno del testo.")
+                    
+            except Exception as e:
+                st.error(f"Errore critico durante la lettura del PDF: {e}")
