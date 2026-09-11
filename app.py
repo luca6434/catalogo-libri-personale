@@ -25,7 +25,7 @@ st.markdown("""
 
 # --- CONNESSIONE A GOOGLE SHEETS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
-SPREADSHEET_URL = "INSERISCI_QUI_URL_DEL_TUO_FOGLIO_GOOGLE" # Ricordati di rimettere il tuo URL!
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Zn9mqWmS1KAlttSTr55lwA5eS_vjuHIPAh5qF3lMO_E/edit?usp=sharing" # Ricordati di rimettere il tuo URL!
 
 COLONNE = ['isbn', 'cognome1', 'cognome2', 'cognome3', 'nome1', 'nome2', 'nome3', 
            'titolo1', 'titolo2', 'editore', 'edi.', 'acq.', 'lingua', 
