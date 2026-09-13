@@ -228,41 +228,40 @@ with tab2:
                 if successo: st.success(f"✅ {msg}")
                 else: st.error(f"❌ {msg}")
 
-# --- TAB 3: CARICA DA PDF (Motore pdfplumber) ---
+# --- TAB 3: CARICA DA PDF (Motore pdfplumber Ottimizzato) ---
 with tab3:
     st.markdown("### 📂 Importazione Automatica Tabellare")
-    st.markdown("Il sistema usa il motore visivo **pdfplumber** per scansionare le griglie del PDF e separare le celle con precisione chirurgica.")
+    st.markdown("Il sistema usa il motore visivo **pdfplumber** per scansionare le griglie del PDF.")
     
-    # Opzione per saltare l'intestazione
     ha_intestazione = st.checkbox("La prima riga del PDF contiene i titoli delle colonne?", value=True)
-    
     uploaded_file = st.file_uploader("Seleziona File (.pdf)", type="pdf")
     
     if uploaded_file is not None:
-        with st.spinner("Scansione geometrica delle tabelle in corso (potrebbe richiedere qualche secondo)..."):
+        with st.spinner("Scansione geometrica in corso (non chiudere la pagina)..."):
+            temp_path = None
             try:
-                import re
+                # 1. Salvataggio temporaneo sul disco rigido del server per non saturare la RAM
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                    tmp_file.write(uploaded_file.getvalue())
+                    temp_path = tmp_file.name
+                
                 libri_trovati = []
                 
-                # Apre il PDF direttamente come oggetto file
-                with pdfplumber.open(uploaded_file) as pdf:
+                # 2. Lettura dal file fisico
+                with pdfplumber.open(temp_path) as pdf:
+                    # Se il PDF è enorme, potresti dover limitare le pagine lette per volta
                     for num_pagina, pagina in enumerate(pdf.pages):
-                        # Estrae tutte le tabelle trovate nella pagina
                         tabelle = pagina.extract_tables()
                         
                         for tabella in tabelle:
-                            # Se l'utente ha spuntato "ha intestazione", saltiamo la prima riga della prima tabella
                             dati = tabella[1:] if ha_intestazione and num_pagina == 0 else tabella
                             
                             for riga in dati:
-                                # Ignora righe totalmente vuote
                                 if not riga or all(cella is None or str(cella).strip() == "" for cella in riga):
                                     continue
                                 
-                                # Pulisce i ritorni a capo (\n) che a volte si creano nelle celle del PDF
                                 riga_pulita = [str(cella).replace('\n', ' ').strip() if cella else "" for cella in riga]
                                 
-                                # Verifica che sia un libro reale cercando un ISBN tra le celle
                                 isbn_trovato = ""
                                 for cella in riga_pulita:
                                     match = re.search(r'(?:97[89])?\d{9}[\dX]', cella.replace("-", "").replace(" ", ""), re.IGNORECASE)
@@ -271,10 +270,7 @@ with tab3:
                                         break
                                 
                                 if isbn_trovato:
-                                    # Crea un libro vuoto base
                                     libro = {col: "" for col in COLONNE}
-                                    
-                                    # Abbina ordinatamente le celle lette dal PDF alle nostre 23 colonne
                                     for indice_col, nome_col in enumerate(COLONNE):
                                         if indice_col < len(riga_pulita):
                                             if nome_col == 'isbn':
@@ -287,21 +283,16 @@ with tab3:
                                     libri_trovati.append(libro)
                                     
                 if libri_trovati:
-                    st.success(f"✅ Scansione completata: trovati e mappati {len(libri_trovati)} libri!")
+                    st.success(f"✅ Scansione completata: mappati {len(libri_trovati)} libri!")
                     
-                    # Anteprima
                     df_trovati = pd.DataFrame(libri_trovati)
                     st.dataframe(df_trovati, use_container_width=True, hide_index=True)
                     
-                    st.info("💡 L'algoritmo ha abbinato in ordine le colonne del PDF con le colonne del database. Verifica l'anteprima prima di salvare.")
-                    
-                    # BOTTONE DI SALVATAGGIO
                     if st.button("💾 Conferma e Salva Dati nel Database", use_container_width=True):
                         with st.spinner("Sincronizzazione massiva con Google Sheets..."):
                             df_corrente = carica_dati()
                             isbn_esistenti = df_corrente['isbn'].astype(str).tolist() if not df_corrente.empty else []
                             
-                            # Evitiamo doppioni
                             nuovi_inserimenti = [l for l in libri_trovati if str(l['isbn']) not in isbn_esistenti]
                             
                             if nuovi_inserimenti:
@@ -314,13 +305,16 @@ with tab3:
                                 df_aggiornato = df_aggiornato[COLONNE]
                                 
                                 conn.update(worksheet="Foglio1", data=df_aggiornato, spreadsheet=SPREADSHEET_URL)
-                                st.success(f"🎉 Sincronizzazione perfetta! {len(nuovi_inserimenti)} volumi aggiunti al catalogo.")
+                                st.success(f"🎉 Sincronizzazione perfetta! {len(nuovi_inserimenti)} volumi aggiunti.")
                                 st.balloons()
                             else:
-                                st.warning("⚠️ Operazione annullata: Tutti gli ISBN trovati in questo PDF sono già archiviati.")
-                                
+                                st.warning("⚠️ Operazione annullata: Tutti gli ISBN sono già archiviati.")
                 else:
-                    st.warning("⚠️ Non è stata trovata nessuna tabella strutturata contenente codici ISBN in questo PDF.")
+                    st.warning("⚠️ Nessuna tabella strutturata contenente ISBN trovata.")
                     
             except Exception as e:
-                st.error(f"Errore critico durante l'estrazione geometrica del PDF: {e}")
+                st.error(f"Errore critico: {e}")
+            finally:
+                # 3. Pulizia obbligatoria: eliminiamo il file temporaneo per liberare spazio
+                if temp_path and os.path.exists(temp_path):
+                    os.remove(temp_path)
