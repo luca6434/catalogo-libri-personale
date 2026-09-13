@@ -78,8 +78,7 @@ st.divider()
 
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard & Ricerca", "📝 Inserimento Manuale", "📂 Importazione Massiva (PDF)"])
 
-# --- TAB 1: RICERCA E DASHBOARD ---
-# --- TAB 1: RICERCA E DASHBOARD ---
+# --- TAB 1: RICERCA, DASHBOARD E GESTIONE ---
 with tab1:
     df_libri = carica_dati()
     
@@ -89,27 +88,28 @@ with tab1:
         with col_m2: st.metric(label="Autori Principali", value=df_libri['cognome1'].nunique())
         with col_m3: st.metric(label="Sedi Utilizzate", value=df_libri['luogo'].nunique())
     
-    st.markdown("### 🔍 Esplora Catalogo")
-    search_query = st.text_input("Ricerca libera (Titolo, Autore, ISBN, Luogo...)", placeholder="Inizia a digitare...").lower()
+    st.markdown("### 🔍 Esplora e Gestisci Catalogo")
+    search_query = st.text_input(
+        "Ricerca Multi-Filtro (es. 'rossi roma 2022' per filtrare autore, luogo e anno in un colpo solo)", 
+        placeholder="Digita uno o più criteri..."
+    ).lower()
     
     if not df_libri.empty:
         df_filtrato = df_libri.copy()
+        
+        # LOGICA DI RICERCA MULTIPLA (AND)
         if search_query:
-            mask = df_filtrato.astype(str).apply(lambda x: x.str.lower().str.contains(search_query)).any(axis=1)
-            df_filtrato = df_filtrato[mask]
+            termini = search_query.split()
+            for termine in termini:
+                mask = df_filtrato.astype(str).apply(lambda x: x.str.lower().str.contains(termine)).any(axis=1)
+                df_filtrato = df_filtrato[mask]
             
-        # Funzione per formattare testi multipli su più righe
         def comprimi_su_righe(row, cols):
             valori = [str(row[c]).strip() for c in cols if pd.notna(row[c]) and str(row[c]).strip() not in ["", "None", "nan"]]
-            if len(valori) == 0:
-                return ""
-            elif len(valori) == 1:
-                return valori[0]
-            else:
-                # Aggiunge un punto elenco e un a capo per separare visivamente ogni voce
-                return "\n".join([f"• {v}" for v in valori])
+            if len(valori) == 0: return ""
+            elif len(valori) == 1: return valori[0]
+            else: return "\n".join([f"• {v}" for v in valori])
             
-        # Costruzione del Dataframe "Visivo"
         df_display = pd.DataFrame()
         df_display['isbn'] = df_filtrato.get('isbn', '')
         df_display['cognome'] = df_filtrato.apply(lambda r: comprimi_su_righe(r, ['cognome1', 'cognome2', 'cognome3']), axis=1)
@@ -130,35 +130,49 @@ with tab1:
         df_display['colonna'] = df_filtrato.get('colonna', '')
         df_display['note'] = df_filtrato.apply(lambda r: comprimi_su_righe(r, ['note1', 'note2']), axis=1)
 
-        # Rendering della tabella con i titoli colonne richiesti
         st.dataframe(
             df_display, 
             use_container_width=True, 
             hide_index=True,
-            column_config={
-                "isbn": "Isbn",
-                "cognome": "cognome",
-                "nome": "nome",
-                "titolo1": "titolo(1)",
-                "titolo2": "titolo(2)",
-                "editore": "editore",
-                "edi": "edi.",
-                "acq": "Acq.",
-                "lingua": "Lingua",
-                "argomento1": "argomento",
-                "argomento2": "argomento",
-                "argomento3": "argomento",
-                "luogo": "luogo",
-                "stanza": "stanza",
-                "libreria": "libreria",
-                "riga": "riga",
-                "colonna": "colonna",
-                "note": "note"
-            }
+            column_config={"isbn": "Isbn", "cognome": "cognome", "nome": "nome", "titolo1": "titolo(1)", "titolo2": "titolo(2)", "editore": "editore", "edi": "edi.", "acq": "Acq.", "lingua": "Lingua", "argomento1": "argomento", "argomento2": "argomento", "argomento3": "argomento", "luogo": "luogo", "stanza": "stanza", "libreria": "libreria", "riga": "riga", "colonna": "colonna", "note": "note"}
         )
+        
+        # --- SEZIONE MODIFICA E RIMOZIONE ---
+        st.divider()
+        st.markdown("**⚙️ Modifica o Elimina Volume**")
+        
+        opzioni = df_filtrato['isbn'].astype(str) + " - " + df_filtrato['titolo1'].astype(str)
+        selezione = st.selectbox("Seleziona un volume dalla ricerca qui sopra per gestirlo:", options=[""] + list(opzioni))
+        
+        if selezione:
+            isbn_selezionato = selezione.split(" - ")[0]
+            st.caption("Scorri lateralmente la tabella qui sotto per modificare i singoli campi. L'ISBN è bloccato per evitare corruzioni.")
+            
+            # Crea un editor interattivo per la singola riga selezionata
+            df_riga = df_libri[df_libri['isbn'].astype(str) == isbn_selezionato].copy()
+            df_modificato = st.data_editor(df_riga, hide_index=True, use_container_width=True, disabled=["isbn"])
+            
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("💾 Applica Modifiche", type="primary", use_container_width=True):
+                    with st.spinner("Salvataggio..."):
+                        # Sostituisce la vecchia riga con quella appena modificata
+                        indice = df_libri.index[df_libri['isbn'].astype(str) == isbn_selezionato].tolist()[0]
+                        df_libri.iloc[indice] = df_modificato.iloc[0]
+                        conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
+                        st.success("✅ Modifiche salvate con successo!")
+                        st.rerun()
+                        
+            with col_btn2:
+                if st.button("🗑️ Elimina Definitivamente", use_container_width=True):
+                    with st.spinner("Eliminazione..."):
+                        # Rimuove la riga dal dataset
+                        df_libri = df_libri[df_libri['isbn'].astype(str) != isbn_selezionato]
+                        conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
+                        st.success("✅ Volume rimosso dal database!")
+                        st.rerun()
     else:
         st.info("💡 Database vuoto.")
-
 # --- TAB 2: AGGIUNGI LIBRO (FORM) ---
 with tab2:
     with st.form("form_aggiunta", clear_on_submit=True):
