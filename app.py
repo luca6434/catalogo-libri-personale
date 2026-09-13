@@ -62,7 +62,7 @@ def aggiungi_libro(dati_libro):
     
     for col in COLONNE:
         if col not in df_aggiornato.columns:
-            df_aggiornato[col] = None 
+            df_aggiornato[col] =  
             
     df_aggiornato = df_aggiornato[COLONNE]
     
@@ -226,62 +226,73 @@ with tab2:
                 if successo: st.success(f"✅ {msg}")
                 else: st.error(f"❌ {msg}")
 
-# --- TAB 3: CARICA DA PDF (Motore pdfplumber Ottimizzato) ---
+# --- TAB 3: CARICA DA PDF (Motore Ultra-Leggero PyMuPDF) ---
 with tab3:
     st.markdown("### 📂 Importazione Automatica Tabellare")
-    st.markdown("Il sistema usa il motore visivo **pdfplumber** per scansionare le griglie del PDF.")
+    st.markdown("Il sistema usa ora il motore **PyMuPDF**, ottimizzato in C++ per non sovraccaricare la memoria del server cloud.")
     
     ha_intestazione = st.checkbox("La prima riga del PDF contiene i titoli delle colonne?", value=True)
     uploaded_file = st.file_uploader("Seleziona File (.pdf)", type="pdf")
     
     if uploaded_file is not None:
-        with st.spinner("Scansione geometrica in corso (non chiudere la pagina)..."):
-            temp_path = None
+        with st.spinner("Estrazione ultra-rapida in corso..."):
             try:
-                # 1. Salvataggio temporaneo sul disco rigido del server per non saturare la RAM
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                    tmp_file.write(uploaded_file.getvalue())
-                    temp_path = tmp_file.name
-                
                 libri_trovati = []
                 
-                # 2. Lettura dal file fisico
-                with pdfplumber.open(temp_path) as pdf:
-                    # Se il PDF è enorme, potresti dover limitare le pagine lette per volta
-                    for num_pagina, pagina in enumerate(pdf.pages):
-                        tabelle = pagina.extract_tables()
+                # Apre il PDF leggendolo direttamente in memoria in modo efficientissimo
+                doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+                totale_pagine = len(doc)
+                
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                for num_pagina, pagina in enumerate(doc):
+                    status_text.text(f"Analisi geometria della tabella: Pagina {num_pagina + 1} di {totale_pagine}...")
+                    progress_bar.progress((num_pagina + 1) / totale_pagine)
+                    
+                    # Funzione nativa e leggerissima per trovare le tabelle
+                    tabelle = pagina.find_tables()
+                    
+                    for tabella in tabelle:
+                        # Estrae la griglia sotto forma di lista di liste
+                        dati = tabella.extract()
                         
-                        for tabella in tabelle:
-                            dati = tabella[1:] if ha_intestazione and num_pagina == 0 else tabella
+                        # Salta l'intestazione se l'utente lo ha richiesto
+                        dati_utili = dati[1:] if ha_intestazione and num_pagina == 0 else dati
+                        
+                        for riga in dati_utili:
+                            if not riga or all(cella is None or str(cella).strip() == "" for cella in riga):
+                                continue
                             
-                            for riga in dati:
-                                if not riga or all(cella is None or str(cella).strip() == "" for cella in riga):
-                                    continue
-                                
-                                riga_pulita = [str(cella).replace('\n', ' ').strip() if cella else "" for cella in riga]
-                                
-                                isbn_trovato = ""
-                                for cella in riga_pulita:
-                                    match = re.search(r'(?:97[89])?\d{9}[\dX]', cella.replace("-", "").replace(" ", ""), re.IGNORECASE)
-                                    if match:
-                                        isbn_trovato = match.group(0)
-                                        break
-                                
-                                if isbn_trovato:
-                                    libro = {col: "" for col in COLONNE}
-                                    for indice_col, nome_col in enumerate(COLONNE):
-                                        if indice_col < len(riga_pulita):
-                                            if nome_col == 'isbn':
-                                                libro[nome_col] = str(isbn_trovato)
-                                            else:
-                                                libro[nome_col] = riga_pulita[indice_col]
-                                        elif nome_col == 'isbn':
+                            riga_pulita = [str(cella).replace('\n', ' ').strip() if cella else "" for cella in riga]
+                            
+                            isbn_trovato = ""
+                            for cella in riga_pulita:
+                                match = re.search(r'(?:97[89])?\d{9}[\dX]', cella.replace("-", "").replace(" ", ""), re.IGNORECASE)
+                                if match:
+                                    isbn_trovato = match.group(0)
+                                    break
+                            
+                            if isbn_trovato:
+                                libro = {col: "" for col in COLONNE}
+                                for indice_col, nome_col in enumerate(COLONNE):
+                                    if indice_col < len(riga_pulita):
+                                        if nome_col == 'isbn':
                                             libro[nome_col] = str(isbn_trovato)
-                                            
-                                    libri_trovati.append(libro)
-                                    
+                                        else:
+                                            libro[nome_col] = riga_pulita[indice_col]
+                                    elif nome_col == 'isbn':
+                                        libro[nome_col] = str(isbn_trovato)
+                                        
+                                libri_trovati.append(libro)
+                                
+                # Chiusura sicura del documento per liberare la RAM istantaneamente
+                doc.close()
+                status_text.empty()
+                progress_bar.empty()
+                
                 if libri_trovati:
-                    st.success(f"✅ Scansione completata: mappati {len(libri_trovati)} libri!")
+                    st.success(f"✅ Scansione completata: trovati e mappati {len(libri_trovati)} libri!")
                     
                     df_trovati = pd.DataFrame(libri_trovati)
                     st.dataframe(df_trovati, use_container_width=True, hide_index=True)
@@ -306,13 +317,9 @@ with tab3:
                                 st.success(f"🎉 Sincronizzazione perfetta! {len(nuovi_inserimenti)} volumi aggiunti.")
                                 st.balloons()
                             else:
-                                st.warning("⚠️ Operazione annullata: Tutti gli ISBN sono già archiviati.")
+                                st.warning("⚠️ Operazione annullata: Tutti gli ISBN trovati in questo PDF sono già archiviati.")
                 else:
-                    st.warning("⚠️ Nessuna tabella strutturata contenente ISBN trovata.")
+                    st.warning("⚠️ Nessuna tabella strutturata contenente codici ISBN trovata.")
                     
             except Exception as e:
-                st.error(f"Errore critico: {e}")
-            finally:
-                # 3. Pulizia obbligatoria: eliminiamo il file temporaneo per liberare spazio
-                if temp_path and os.path.exists(temp_path):
-                    os.remove(temp_path)
+                st.error(f"Errore critico durante l'estrazione: {e}")
