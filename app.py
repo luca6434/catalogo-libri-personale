@@ -28,7 +28,7 @@ st.markdown("""
 conn = st.connection("gsheets", type=GSheetsConnection)
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Zn9mqWmS1KAlttSTr55lwA5eS_vjuHIPAh5qF3lMO_E/edit?usp=sharing"
 
-COLONNE = ['isbn', 'cognome1', 'cognome2', 'cognome3', 'nome1', 'nome2', 'nome3', 
+COLONNE = ['isbn', 'cognome1', 'nome1', 'cognome2', 'nome2', 'cognome3', 'nome3', 
            'titolo1', 'titolo2', 'editore', 'edi', 'acq', 'lingua', 
            'argomento1', 'argomento2', 'argomento3', 'luogo', 'stanza', 
            'libreria', 'riga', 'colonna', 'note1', 'note2']
