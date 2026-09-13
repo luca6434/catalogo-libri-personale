@@ -13,7 +13,7 @@ st.markdown("""
 <style>
 /* INGRANDIMENTO BARRE DI SCORRIMENTO */
     ::-webkit-scrollbar { 
-        width: 16px !important; 
+        width: 36px !important; 
         height: 16px !important; 
     }
     ::-webkit-scrollbar-track { 
