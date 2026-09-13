@@ -2,29 +2,66 @@ import streamlit as st
 import pandas as pd
 import datetime
 import re
-import fitz  
+import pdfplumber
+import tempfile
+import os
 from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURAZIONE PAGINA ---
-st.set_page_config(page_title="Gestione Catalogo Libri", page_icon="📘", layout="wide")
+st.set_page_config(page_title="Catalogo Libreria", page_icon="📘", layout="wide")
 
-# --- CSS PERSONALIZZATO ---
+# --- DESIGN MODERNO (CSS) ---
 st.markdown("""
 <style>
-    .stApp { background-color: #f4f6f9; }
+    .stApp { background-color: #f8f9fa; }
+    
+    /* Contatori Volumi 3D */
     div[data-testid="metric-container"] {
-        background-color: #ffffff; border: 1px solid #e1e4e8;
-        padding: 15px 20px; border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.04); border-left: 5px solid #0068c9;
+        background: linear-gradient(135deg, #ffffff 0%, #f1f3f5 100%);
+        border-left: 5px solid #1c7ed6;
+        padding: 20px 25px; 
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        border: 1px solid #e9ecef;
+        border-left: 5px solid #1c7ed6;
     }
-    .stButton>button { border-radius: 6px; font-weight: 600; padding: 0.5rem 1rem; }
+    div[data-testid="metric-container"] label {
+        font-size: 1.1rem !important;
+        font-weight: 600 !important;
+        color: #6c757d !important;
+    }
+    div[data-testid="metric-container"] div {
+        font-size: 2.2rem !important;
+        color: #1c7ed6 !important;
+        font-weight: 800 !important;
+    }
+
+    /* Bottoni interattivi */
+    .stButton>button { 
+        border-radius: 8px; 
+        font-weight: 600; 
+        padding: 0.6rem 1.2rem; 
+        transition: all 0.3s ease;
+    }
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    /* Stile Form e Tabs */
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; background-color: transparent; border-radius: 4px 4px 0px 0px; font-weight: 600; }
-    div[data-testid="stForm"] { background-color: #ffffff; border-radius: 10px; padding: 25px; border: 1px solid #e1e4e8; }
+    .stTabs [data-baseweb="tab"] { height: 50px; background-color: transparent; font-weight: 600; }
+    div[data-testid="stForm"] { 
+        background-color: #ffffff; 
+        border-radius: 12px; 
+        padding: 25px; 
+        border: 1px solid #e9ecef; 
+        box-shadow: 0 2px 10px rgba(0,0,0,0.02); 
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- CONNESSIONE A GOOGLE SHEETS ---
+# --- CONNESSIONE E VARIABILI ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Zn9mqWmS1KAlttSTr55lwA5eS_vjuHIPAh5qF3lMO_E/edit?usp=sharing"
 
@@ -38,106 +75,64 @@ def carica_dati():
         df = conn.read(spreadsheet=SPREADSHEET_URL, ttl=0)
         df.columns = df.columns.str.strip()
         colonne_valide = [c for c in COLONNE if c in df.columns]
-        
         if not df.empty:
             df = df[colonne_valide]
             if 'isbn' in df.columns:
                 df['isbn'] = df['isbn'].astype(str)
         else:
             df = pd.DataFrame(columns=COLONNE)
-            
         return df
-    except Exception as e:
-        st.error(f"Errore di connessione a Google Sheets: {e}")
+    except:
         return pd.DataFrame(columns=COLONNE)
 
-def aggiungi_libro(dati_libro):
-    df_corrente = carica_dati()
-    
-    if not df_corrente.empty and str(dati_libro['isbn']) in df_corrente['isbn'].values:
-        return False, "Errore: ISBN già censito a sistema."
-    
-    nuovo_libro = pd.DataFrame([dati_libro])
-    df_aggiornato = pd.concat([df_corrente, nuovo_libro], ignore_index=True)
-    
-    for col in COLONNE:
-        if col not in df_aggiornato.columns:
-            df_aggiornato[col] =  None
-            
-    df_aggiornato = df_aggiornato[COLONNE]
-    
-    try:
-        conn.update(worksheet="Foglio1", data=df_aggiornato, spreadsheet=SPREADSHEET_URL)
-        return True, "Libro inserito correttamente a sistema."
-    except Exception as e:
-        return False, f"Errore durante il salvataggio: {e}"
+# --- INTERFACCIA PRINCIPALE ---
+st.title("📘 Gestione Catalogo")
 
-# --- HEADER DELL'APPLICAZIONE ---
-st.title("📘 Sistema di Gestione Libreria (Cloud Edition)")
-st.divider()
+tab1, tab2, tab3 = st.tabs(["📊 Dashboard & Ricerca", "➕ Inserimento Manuale", "📂 Estrazione PDF"])
 
-tab1, tab2, tab3 = st.tabs(["📊 Dashboard & Ricerca", "📝 Inserimento Manuale", "📂 Importazione Massiva (PDF)"])
-
-# --- TAB 1: RICERCA, DASHBOARD E GESTIONE ---
+# --- TAB 1: DASHBOARD ---
 with tab1:
     df_libri = carica_dati()
     
     if not df_libri.empty:
         col_m1, col_m2, col_m3 = st.columns(3)
-        with col_m1: st.metric(label="Totale Volumi", value=len(df_libri))
-        with col_m2: st.metric(label="Autori Principali", value=df_libri['cognome1'].nunique())
-        with col_m3: st.metric(label="Sedi Utilizzate", value=df_libri['luogo'].nunique())
-    
-    st.markdown("### 🔍 Esplora e Gestisci Catalogo")
-    
-    # Barra di ricerca testuale generale
-    search_query = st.text_input("Ricerca testuale (Titolo, Autore, ISBN...)", placeholder="Digita qui per cercare...").lower()
-    
-    df_filtrato = df_libri.copy() if not df_libri.empty else pd.DataFrame()
-    
-    if not df_libri.empty:
-        # Tasto/Pannello per i Filtri Avanzati
-        with st.expander("🛠️ Apri Filtri Avanzati (Lingua, Posizione...)"):
-            # Funzione per estrarre solo i valori unici reali (ignorando caselle vuote o errori)
+        with col_m1: st.metric("Totale Volumi", len(df_libri))
+        with col_m2: st.metric("Autori", df_libri['cognome1'].nunique())
+        with col_m3: st.metric("Sedi", df_libri['luogo'].nunique())
+        
+        st.write("") # Spaziatura
+        
+        # Ricerca pulita senza label ingombranti
+        search_query = st.text_input("Ricerca testuale", placeholder="Es. eco roma 2024...", label_visibility="collapsed").lower()
+        
+        df_filtrato = df_libri.copy()
+        
+        # Filtri avanzati compatti
+        with st.expander("🛠️ Filtri Avanzati"):
             def ottieni_unici(nome_colonna):
                 valori = [str(x).strip() for x in df_libri[nome_colonna].dropna().unique()]
                 return sorted(list(set(v for v in valori if v not in ["", "None", "nan"])))
             
-            # Layout a 5 colonne per i filtri
             col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
-            with col_f1:
-                filtro_lingua = st.multiselect("Lingua", options=ottieni_unici('lingua'))
-            with col_f2:
-                filtro_stanza = st.multiselect("Stanza", options=ottieni_unici('stanza'))
-            with col_f3:
-                filtro_libreria = st.multiselect("Libreria", options=ottieni_unici('libreria'))
-            with col_f4:
-                filtro_riga = st.multiselect("Riga", options=ottieni_unici('riga'))
-            with col_f5:
-                filtro_colonna = st.multiselect("Colonna", options=ottieni_unici('colonna'))
+            with col_f1: filtro_lingua = st.multiselect("Lingua", ottieni_unici('lingua'))
+            with col_f2: filtro_stanza = st.multiselect("Stanza", ottieni_unici('stanza'))
+            with col_f3: filtro_libreria = st.multiselect("Libreria", ottieni_unici('libreria'))
+            with col_f4: filtro_riga = st.multiselect("Riga", ottieni_unici('riga'))
+            with col_f5: filtro_colonna = st.multiselect("Colonna", ottieni_unici('colonna'))
                 
-        # --- LOGICA DI FILTRAGGIO INCROCIATO ---
-        
-        # 1. Filtro testuale (come prima, spezza le parole)
+        # Applicazione Filtri
         if search_query:
-            termini = search_query.split()
-            for termine in termini:
+            for termine in search_query.split():
                 mask = df_filtrato.astype(str).apply(lambda x: x.str.lower().str.contains(termine)).any(axis=1)
                 df_filtrato = df_filtrato[mask]
         
-        # 2. Filtri del pannello avanzato (Applica solo se l'utente ha selezionato qualcosa)
-        if filtro_lingua:
-            df_filtrato = df_filtrato[df_filtrato['lingua'].astype(str).str.strip().isin(filtro_lingua)]
-        if filtro_stanza:
-            df_filtrato = df_filtrato[df_filtrato['stanza'].astype(str).str.strip().isin(filtro_stanza)]
-        if filtro_libreria:
-            df_filtrato = df_filtrato[df_filtrato['libreria'].astype(str).str.strip().isin(filtro_libreria)]
-        if filtro_riga:
-            df_filtrato = df_filtrato[df_filtrato['riga'].astype(str).str.strip().isin(filtro_riga)]
-        if filtro_colonna:
-            df_filtrato = df_filtrato[df_filtrato['colonna'].astype(str).str.strip().isin(filtro_colonna)]
+        if filtro_lingua: df_filtrato = df_filtrato[df_filtrato['lingua'].astype(str).str.strip().isin(filtro_lingua)]
+        if filtro_stanza: df_filtrato = df_filtrato[df_filtrato['stanza'].astype(str).str.strip().isin(filtro_stanza)]
+        if filtro_libreria: df_filtrato = df_filtrato[df_filtrato['libreria'].astype(str).str.strip().isin(filtro_libreria)]
+        if filtro_riga: df_filtrato = df_filtrato[df_filtrato['riga'].astype(str).str.strip().isin(filtro_riga)]
+        if filtro_colonna: df_filtrato = df_filtrato[df_filtrato['colonna'].astype(str).str.strip().isin(filtro_colonna)]
 
-        # --- FORMATTAZIONE VISIVA (Unione testi multipli) ---
+        # Costruzione tabella visiva
         def comprimi_su_righe(row, cols):
             valori = [str(row[c]).strip() for c in cols if pd.notna(row[c]) and str(row[c]).strip() not in ["", "None", "nan"]]
             if len(valori) == 0: return ""
@@ -164,7 +159,6 @@ with tab1:
         df_display['colonna'] = df_filtrato.get('colonna', '')
         df_display['note'] = df_filtrato.apply(lambda r: comprimi_su_righe(r, ['note1', 'note2']), axis=1)
 
-        # Rendering tabella
         st.dataframe(
             df_display, 
             use_container_width=True, 
@@ -172,53 +166,42 @@ with tab1:
             column_config={"isbn": "Isbn", "cognome": "cognome", "nome": "nome", "titolo1": "titolo(1)", "titolo2": "titolo(2)", "editore": "editore", "edi": "edi.", "acq": "Acq.", "lingua": "Lingua", "argomento1": "argomento", "argomento2": "argomento", "argomento3": "argomento", "luogo": "luogo", "stanza": "stanza", "libreria": "libreria", "riga": "riga", "colonna": "colonna", "note": "note"}
         )
         
-        # --- SEZIONE MODIFICA E RIMOZIONE ---
-        st.divider()
-        st.markdown("**⚙️ Modifica o Elimina Volume**")
-        
+        # --- EDITOR RIGA ---
+        st.write("")
         opzioni = df_filtrato['isbn'].astype(str) + " - " + df_filtrato['titolo1'].astype(str)
-        selezione = st.selectbox("Seleziona un volume dalla ricerca qui sopra per gestirlo:", options=[""] + list(opzioni))
+        selezione = st.selectbox("Gestione Rapida Volume", options=[""] + list(opzioni), label_visibility="collapsed")
         
         if selezione:
             isbn_selezionato = selezione.split(" - ")[0]
-            st.caption("Modifica le celle direttamente nella tabella sottostante. L'ISBN è bloccato.")
-            
             df_riga = df_libri[df_libri['isbn'].astype(str) == isbn_selezionato].copy()
             df_modificato = st.data_editor(df_riga, hide_index=True, use_container_width=True, disabled=["isbn"])
             
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
                 if st.button("💾 Applica Modifiche", type="primary", use_container_width=True):
-                    with st.spinner("Salvataggio..."):
-                        indice = df_libri.index[df_libri['isbn'].astype(str) == isbn_selezionato].tolist()[0]
-                        df_libri.iloc[indice] = df_modificato.iloc[0]
-                        conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
-                        st.success("✅ Modifiche salvate con successo!")
-                        st.rerun()
-                        
-            with col_btn2:
-                if st.button("🗑️ Elimina Definitivamente", use_container_width=True):
-                    with st.spinner("Eliminazione in corso..."):
-                        df_libri = df_libri[df_libri['isbn'].astype(str) != isbn_selezionato]
-                        conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
-                        st.success("✅ Volume rimosso dal database!")
-                        st.rerun()
-    else:
-        st.info("💡 Database vuoto.")
-# --- TAB 2: AGGIUNGI LIBRO (FORM) ---
+                    indice = df_libri.index[df_libri['isbn'].astype(str) == isbn_selezionato].tolist()[0]
+                    df_libri.iloc[indice] = df_modificato.iloc[0]
+                    conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
+                    st.rerun()
+            with col_b2:
+                if st.button("🗑️ Elimina", use_container_width=True):
+                    df_libri = df_libri[df_libri['isbn'].astype(str) != isbn_selezionato]
+                    conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
+                    st.rerun()
+
+# --- TAB 2: INSERIMENTO ---
 with tab2:
     with st.form("form_aggiunta", clear_on_submit=True):
-        st.subheader("Dati Principali")
-        isbn = st.text_input("Codice ISBN *")
+        isbn = st.text_input("Codice ISBN")
+        
         col_t1, col_t2 = st.columns(2)
-        with col_t1: titolo1 = st.text_input("Titolo 1 *")
+        with col_t1: titolo1 = st.text_input("Titolo 1")
         with col_t2: titolo2 = st.text_input("Titolo 2")
         
         col_e1, col_e2 = st.columns(2)
         with col_e1: editore = st.text_input("Editore")
         with col_e2: lingua = st.text_input("Lingua")
 
-        st.subheader("Autori")
         col_a1, col_a2 = st.columns(2)
         with col_a1:
             nome1 = st.text_input("Nome 1")
@@ -229,20 +212,18 @@ with tab2:
             cognome2 = st.text_input("Cognome 2")
             cognome3 = st.text_input("Cognome 3")
 
-        st.subheader("Classificazione & Date")
         col_arg1, col_arg2, col_arg3 = st.columns(3)
         with col_arg1: argomento1 = st.text_input("Argomento 1")
         with col_arg2: argomento2 = st.text_input("Argomento 2")
         with col_arg3: argomento3 = st.text_input("Argomento 3")
         
         col_d1, col_d2 = st.columns(2)
-        with col_d1: edi = st.date_input("Data Edizione (edi)", datetime.date.today())
-        with col_d2: acq = st.date_input("Data Acquisto (acq)", datetime.date.today())
+        with col_d1: edi = st.text_input("Data Edizione")
+        with col_d2: acq = st.text_input("Data Acquisto")
 
-        st.subheader("Posizione Logistica")
         col_p1, col_p2, col_p3 = st.columns(3)
         with col_p1: 
-            luogo = st.selectbox("Luogo", ["MI", "ME", "ST"])
+            luogo = st.selectbox("Luogo", ["", "MI", "ME", "ST"])
             stanza = st.text_input("Stanza")
         with col_p2: 
             libreria = st.text_input("Libreria")
@@ -250,104 +231,97 @@ with tab2:
         with col_p3: 
             colonna = st.text_input("Colonna")
             
-        st.subheader("Note Aggiuntive")
-        note1 = st.text_area("Note 1 (Opzionale)")
-        note2 = st.text_area("Note 2 (Opzionale)")
+        note1 = st.text_area("Note 1")
+        note2 = st.text_area("Note 2")
         
-        submit = st.form_submit_button("➕ Salva nel Cloud", use_container_width=True)
-        
-        if submit:
-            if not isbn or not titolo1:
-                st.error("⚠️ ISBN e Titolo 1 sono obbligatori.")
+        if st.form_submit_button("➕ Aggiungi al Catalogo", type="primary", use_container_width=True):
+            if isbn and titolo1:
+                df_corrente = carica_dati()
+                if not df_corrente.empty and str(isbn) in df_corrente['isbn'].values:
+                    st.error("ISBN già esistente nel sistema.")
+                else:
+                    dati_libro = {
+                        'isbn': str(isbn), 'cognome1': cognome1, 'cognome2': cognome2, 'cognome3': cognome3,
+                        'nome1': nome1, 'nome2': nome2, 'nome3': nome3, 'titolo1': titolo1, 'titolo2': titolo2,
+                        'editore': editore, 'edi': edi, 'acq': acq, 'lingua': lingua,
+                        'argomento1': argomento1, 'argomento2': argomento2, 'argomento3': argomento3,
+                        'luogo': luogo, 'stanza': stanza, 'libreria': libreria, 'riga': riga, 'colonna': colonna, 
+                        'note1': note1, 'note2': note2
+                    }
+                    nuovo_libro = pd.DataFrame([dati_libro])
+                    df_aggiornato = pd.concat([df_corrente, nuovo_libro], ignore_index=True)
+                    
+                    for col in COLONNE:
+                        if col not in df_aggiornato.columns:
+                            df_aggiornato[col] = ""
+                            
+                    df_aggiornato = df_aggiornato[COLONNE]
+                    conn.update(worksheet="Foglio1", data=df_aggiornato, spreadsheet=SPREADSHEET_URL)
+                    st.success("Volume salvato correttamente!")
             else:
-                dati_libro = {
-                    'isbn': str(isbn), 'cognome1': cognome1, 'cognome2': cognome2, 'cognome3': cognome3,
-                    'nome1': nome1, 'nome2': nome2, 'nome3': nome3, 'titolo1': titolo1, 'titolo2': titolo2,
-                    'editore': editore, 'edi': str(edi), 'acq': str(acq), 'lingua': lingua,
-                    'argomento1': argomento1, 'argomento2': argomento2, 'argomento3': argomento3,
-                    'luogo': luogo, 'stanza': stanza, 'libreria': libreria, 'riga': riga, 'colonna': colonna, 
-                    'note1': note1, 'note2': note2
-                }
-                successo, msg = aggiungi_libro(dati_libro)
-                if successo: st.success(f"✅ {msg}")
-                else: st.error(f"❌ {msg}")
+                st.error("ISBN e Titolo 1 sono campi obbligatori.")
 
-# --- TAB 3: CARICA DA PDF (Motore Ultra-Leggero PyMuPDF) ---
+# --- TAB 3: PDF ---
 with tab3:
-    st.markdown("### 📂 Importazione Automatica Tabellare")
-    st.markdown("Il sistema usa ora il motore **PyMuPDF**, ottimizzato in C++ per non sovraccaricare la memoria del server cloud.")
-    
-    ha_intestazione = st.checkbox("La prima riga del PDF contiene i titoli delle colonne?", value=True)
-    uploaded_file = st.file_uploader("Seleziona File (.pdf)", type="pdf")
+    ha_intestazione = st.checkbox("Ignora la prima riga delle tabelle", value=True)
+    uploaded_file = st.file_uploader("Carica File PDF", type="pdf", label_visibility="collapsed")
     
     if uploaded_file is not None:
-        with st.spinner("Estrazione ultra-rapida in corso..."):
+        with st.spinner("Scansione in corso..."):
+            temp_path = None
             try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                    tmp_file.write(uploaded_file.getvalue())
+                    temp_path = tmp_file.name
+                
                 libri_trovati = []
                 
-                # Apre il PDF leggendolo direttamente in memoria in modo efficientissimo
-                doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-                totale_pagine = len(doc)
-                
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                for num_pagina, pagina in enumerate(doc):
-                    status_text.text(f"Analisi geometria della tabella: Pagina {num_pagina + 1} di {totale_pagine}...")
-                    progress_bar.progress((num_pagina + 1) / totale_pagine)
+                with pdfplumber.open(temp_path) as pdf:
+                    totale_pagine = len(pdf.pages)
+                    progress_bar = st.progress(0)
                     
-                    # Funzione nativa e leggerissima per trovare le tabelle
-                    tabelle = pagina.find_tables()
-                    
-                    for tabella in tabelle:
-                        # Estrae la griglia sotto forma di lista di liste
-                        dati = tabella.extract()
+                    for num_pagina, pagina in enumerate(pdf.pages):
+                        progress_bar.progress((num_pagina + 1) / totale_pagine)
                         
-                        # Salta l'intestazione se l'utente lo ha richiesto
-                        dati_utili = dati[1:] if ha_intestazione and num_pagina == 0 else dati
-                        
-                        for riga in dati_utili:
-                            if not riga or all(cella is None or str(cella).strip() == "" for cella in riga):
-                                continue
-                            
-                            riga_pulita = [str(cella).replace('\n', ' ').strip() if cella else "" for cella in riga]
-                            
-                            isbn_trovato = ""
-                            for cella in riga_pulita:
-                                match = re.search(r'(?:97[89])?\d{9}[\dX]', cella.replace("-", "").replace(" ", ""), re.IGNORECASE)
-                                if match:
-                                    isbn_trovato = match.group(0)
-                                    break
-                            
-                            if isbn_trovato:
-                                libro = {col: "" for col in COLONNE}
-                                for indice_col, nome_col in enumerate(COLONNE):
-                                    if indice_col < len(riga_pulita):
-                                        if nome_col == 'isbn':
-                                            libro[nome_col] = str(isbn_trovato)
-                                        else:
-                                            libro[nome_col] = riga_pulita[indice_col]
-                                    elif nome_col == 'isbn':
-                                        libro[nome_col] = str(isbn_trovato)
-                                        
-                                libri_trovati.append(libro)
+                        tabelle = pagina.extract_tables()
+                        for tabella in tabelle:
+                            dati = tabella[1:] if ha_intestazione and num_pagina == 0 else tabella
+                            for riga in dati:
+                                if not riga or all(cella is None or str(cella).strip() == "" for cella in riga):
+                                    continue
                                 
-                # Chiusura sicura del documento per liberare la RAM istantaneamente
-                doc.close()
-                status_text.empty()
+                                riga_pulita = [str(cella).replace('\n', ' ').strip() if cella else "" for cella in riga]
+                                
+                                isbn_trovato = ""
+                                for cella in riga_pulita:
+                                    match = re.search(r'(?:97[89])?\d{9}[\dX]', cella.replace("-", "").replace(" ", ""), re.IGNORECASE)
+                                    if match:
+                                        isbn_trovato = match.group(0)
+                                        break
+                                
+                                if isbn_trovato:
+                                    libro = {col: "" for col in COLONNE}
+                                    for indice_col, nome_col in enumerate(COLONNE):
+                                        if indice_col < len(riga_pulita):
+                                            if nome_col == 'isbn':
+                                                libro[nome_col] = str(isbn_trovato)
+                                            else:
+                                                libro[nome_col] = riga_pulita[indice_col]
+                                        elif nome_col == 'isbn':
+                                            libro[nome_col] = str(isbn_trovato)
+                                            
+                                    libri_trovati.append(libro)
+                                    
                 progress_bar.empty()
                 
                 if libri_trovati:
-                    st.success(f"✅ Scansione completata: trovati e mappati {len(libri_trovati)} libri!")
-                    
                     df_trovati = pd.DataFrame(libri_trovati)
                     st.dataframe(df_trovati, use_container_width=True, hide_index=True)
                     
-                    if st.button("💾 Conferma e Salva Dati nel Database", use_container_width=True):
-                        with st.spinner("Sincronizzazione massiva con Google Sheets..."):
+                    if st.button("💾 Salva in blocco nel Database", type="primary", use_container_width=True):
+                        with st.spinner("Sincronizzazione..."):
                             df_corrente = carica_dati()
                             isbn_esistenti = df_corrente['isbn'].astype(str).tolist() if not df_corrente.empty else []
-                            
                             nuovi_inserimenti = [l for l in libri_trovati if str(l['isbn']) not in isbn_esistenti]
                             
                             if nuovi_inserimenti:
@@ -360,12 +334,12 @@ with tab3:
                                 df_aggiornato = df_aggiornato[COLONNE]
                                 
                                 conn.update(worksheet="Foglio1", data=df_aggiornato, spreadsheet=SPREADSHEET_URL)
-                                st.success(f"🎉 Sincronizzazione perfetta! {len(nuovi_inserimenti)} volumi aggiunti.")
-                                st.balloons()
+                                st.success(f"{len(nuovi_inserimenti)} volumi aggiunti!")
                             else:
-                                st.warning("⚠️ Operazione annullata: Tutti gli ISBN trovati in questo PDF sono già archiviati.")
-                else:
-                    st.warning("⚠️ Nessuna tabella strutturata contenente codici ISBN trovata.")
-                    
+                                st.warning("Tutti i volumi elaborati sono già nel sistema.")
+                                
             except Exception as e:
-                st.error(f"Errore critico durante l'estrazione: {e}")
+                st.error(f"Errore: {e}")
+            finally:
+                if temp_path and os.path.exists(temp_path):
+                    os.remove(temp_path)
