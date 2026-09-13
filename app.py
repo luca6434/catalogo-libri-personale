@@ -82,6 +82,7 @@ st.divider()
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard & Ricerca", "📝 Inserimento Manuale", "📂 Importazione Massiva (PDF)"])
 
 # --- TAB 1: RICERCA, DASHBOARD E GESTIONE ---
+# --- TAB 1: RICERCA, DASHBOARD E GESTIONE ---
 with tab1:
     df_libri = carica_dati()
     
@@ -91,7 +92,7 @@ with tab1:
         with col_m2: st.metric(label="Autori Principali", value=df_libri['cognome1'].nunique())
         with col_m3: st.metric(label="Sedi Utilizzate", value=df_libri['luogo'].nunique())
     
-    st.markdown("### 🔍 Esplora e Gestisci Catalogo")
+    st.markdown("### 🔍 Esplora e Modifica Catalogo")
     
     search_query = st.text_input("Ricerca testuale (Titolo, Autore, ISBN...)", placeholder="Digita qui per cercare...").lower()
     
@@ -104,114 +105,74 @@ with tab1:
                 return sorted(list(set(v for v in valori if v not in ["", "None", "nan"])))
             
             col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
-            with col_f1:
-                filtro_lingua = st.multiselect("Lingua", options=ottieni_unici('lingua'))
-            with col_f2:
-                filtro_stanza = st.multiselect("Stanza", options=ottieni_unici('stanza'))
-            with col_f3:
-                filtro_libreria = st.multiselect("Libreria", options=ottieni_unici('libreria'))
-            with col_f4:
-                filtro_riga = st.multiselect("Riga", options=ottieni_unici('riga'))
-            with col_f5:
-                filtro_colonna = st.multiselect("Colonna", options=ottieni_unici('colonna'))
+            with col_f1: filtro_lingua = st.multiselect("Lingua", options=ottieni_unici('lingua'))
+            with col_f2: filtro_stanza = st.multiselect("Stanza", options=ottieni_unici('stanza'))
+            with col_f3: filtro_libreria = st.multiselect("Libreria", options=ottieni_unici('libreria'))
+            with col_f4: filtro_riga = st.multiselect("Riga", options=ottieni_unici('riga'))
+            with col_f5: filtro_colonna = st.multiselect("Colonna", options=ottieni_unici('colonna'))
                 
+        # 1. Filtro testuale
         if search_query:
             termini = search_query.split()
             for termine in termini:
                 mask = df_filtrato.astype(str).apply(lambda x: x.str.lower().str.contains(termine)).any(axis=1)
                 df_filtrato = df_filtrato[mask]
         
-        if filtro_lingua:
-            df_filtrato = df_filtrato[df_filtrato['lingua'].astype(str).str.strip().isin(filtro_lingua)]
-        if filtro_stanza:
-            df_filtrato = df_filtrato[df_filtrato['stanza'].astype(str).str.strip().isin(filtro_stanza)]
-        if filtro_libreria:
-            df_filtrato = df_filtrato[df_filtrato['libreria'].astype(str).str.strip().isin(filtro_libreria)]
-        if filtro_riga:
-            df_filtrato = df_filtrato[df_filtrato['riga'].astype(str).str.strip().isin(filtro_riga)]
-        if filtro_colonna:
-            df_filtrato = df_filtrato[df_filtrato['colonna'].astype(str).str.strip().isin(filtro_colonna)]
+        # 2. Filtri avanzati
+        if filtro_lingua: df_filtrato = df_filtrato[df_filtrato['lingua'].astype(str).str.strip().isin(filtro_lingua)]
+        if filtro_stanza: df_filtrato = df_filtrato[df_filtrato['stanza'].astype(str).str.strip().isin(filtro_stanza)]
+        if filtro_libreria: df_filtrato = df_filtrato[df_filtrato['libreria'].astype(str).str.strip().isin(filtro_libreria)]
+        if filtro_riga: df_filtrato = df_filtrato[df_filtrato['riga'].astype(str).str.strip().isin(filtro_riga)]
+        if filtro_colonna: df_filtrato = df_filtrato[df_filtrato['colonna'].astype(str).str.strip().isin(filtro_colonna)]
 
-        def comprimi_su_righe(row, cols):
-            valori = [str(row[c]).strip() for c in cols if pd.notna(row[c]) and str(row[c]).strip() not in ["", "None", "nan"]]
-            if len(valori) == 0: return ""
-            elif len(valori) == 1: return valori[0]
-            else: return "\n".join([f"• {v}" for v in valori])
-            
-        df_display = pd.DataFrame()
-        df_display['isbn'] = df_filtrato.get('isbn', '')
-        df_display['cognome'] = df_filtrato.apply(lambda r: comprimi_su_righe(r, ['cognome1', 'cognome2', 'cognome3']), axis=1)
-        df_display['nome'] = df_filtrato.apply(lambda r: comprimi_su_righe(r, ['nome1', 'nome2', 'nome3']), axis=1)
-        df_display['titolo1'] = df_filtrato.get('titolo1', '')
-        df_display['titolo2'] = df_filtrato.get('titolo2', '')
-        df_display['editore'] = df_filtrato.get('editore', '')
-        df_display['edi'] = df_filtrato.get('edi', '')
-        df_display['acq'] = df_filtrato.get('acq', '')
-        df_display['lingua'] = df_filtrato.get('lingua', '')
-        df_display['argomento1'] = df_filtrato.get('argomento1', '')
-        df_display['argomento2'] = df_filtrato.get('argomento2', '')
-        df_display['argomento3'] = df_filtrato.get('argomento3', '')
-        df_display['luogo'] = df_filtrato.get('luogo', '')
-        df_display['stanza'] = df_filtrato.get('stanza', '')
-        df_display['libreria'] = df_filtrato.get('libreria', '')
-        df_display['riga'] = df_filtrato.get('riga', '')
-        df_display['colonna'] = df_filtrato.get('colonna', '')
-        df_display['note'] = df_filtrato.apply(lambda r: comprimi_su_righe(r, ['note1', 'note2']), axis=1)
-
-        st.dataframe(
-            df_display, 
+        # --- TABELLA INTERATTIVA ---
+        st.info("💡 **Fai doppio clic su qualsiasi cella della tabella per modificarla.** L'ISBN è bloccato per sicurezza.")
+        
+        # Sblocca tutte le celle trattandole come testo per permettere modifiche libere (date, numeri, ecc.)
+        df_filtrato = df_filtrato.fillna("").astype(str).replace(["nan", "None", "<NA>", "NaT"], "")
+        configurazione_testo = {col: st.column_config.TextColumn(col) for col in df_filtrato.columns}
+        
+        df_modificato = st.data_editor(
+            df_filtrato, 
+            hide_index=True, 
             use_container_width=True, 
-            hide_index=True,
-            column_config={"isbn": "Isbn", "cognome": "cognome", "nome": "nome", "titolo1": "titolo(1)", "titolo2": "titolo(2)", "editore": "editore", "edi": "edi.", "acq": "Acq.", "lingua": "Lingua", "argomento1": "argomento", "argomento2": "argomento", "argomento3": "argomento", "luogo": "luogo", "stanza": "stanza", "libreria": "libreria", "riga": "riga", "colonna": "colonna", "note": "note"}
+            disabled=["isbn"],
+            column_config=configurazione_testo,
+            height=600  # Altezza maggiorata
         )
         
-        st.divider()
-        st.markdown("**⚙️ Modifica o Elimina Volume**")
+        # BOTTONE DI SALVATAGGIO MODIFICHE
+        if st.button("💾 Salva Modifiche effettuate in Tabella", type="primary", use_container_width=True):
+            with st.spinner("Sincronizzazione in corso..."):
+                # Allinea i dati usando l'ISBN come punto di riferimento e aggiorna il foglio master
+                df_libri_idx = df_libri.set_index("isbn")
+                df_mod_idx = df_modificato.set_index("isbn")
+                
+                df_libri_idx.update(df_mod_idx)
+                df_libri = df_libri_idx.reset_index()
+                
+                df_libri.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
+                
+                conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
+                st.success("✅ Tutte le modifiche sono state salvate con successo!")
+                st.rerun()
         
+        # --- RIMOZIONE DEFINITIVA (Mantenuta separata per sicurezza) ---
+        st.divider()
+        st.markdown("**🗑️ Eliminazione Volume**")
         opzioni = df_filtrato['isbn'].astype(str) + " - " + df_filtrato['titolo1'].astype(str)
-        selezione = st.selectbox("Seleziona un volume dalla ricerca qui sopra per gestirlo:", options=[""] + list(opzioni))
+        selezione = st.selectbox("Se devi rimuovere un libro, selezionalo qui:", options=[""] + list(opzioni))
         
         if selezione:
             isbn_selezionato = selezione.split(" - ")[0]
-            st.caption("Modifica le celle direttamente nella tabella sottostante. L'ISBN è bloccato.")
-            
-            df_riga = df_libri[df_libri['isbn'].astype(str) == isbn_selezionato].copy()
-            
-            # SBLOCCO CAMPI: Forza il dataframe a essere testo puro e disabilita le restrizioni di formato
-            df_riga = df_riga.fillna("").astype(str).replace(["nan", "None", "<NA>", "NaT"], "")
-            configurazione_testo = {col: st.column_config.TextColumn(col) for col in df_riga.columns}
-            
-            df_modificato = st.data_editor(
-                df_riga, 
-                hide_index=True, 
-                use_container_width=True, 
-                disabled=["isbn"],
-                column_config=configurazione_testo
-            )
-            
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                if st.button("💾 Applica Modifiche", type="primary", use_container_width=True):
-                    with st.spinner("Salvataggio..."):
-                        indice = df_libri.index[df_libri['isbn'].astype(str) == isbn_selezionato].tolist()[0]
-                        df_libri.iloc[indice] = df_modificato.iloc[0]
-                        
-                        df_libri.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
-                        
-                        conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
-                        st.success("✅ Modifiche salvate con successo!")
-                        st.rerun()
-                        
-            with col_btn2:
-                if st.button("🗑️ Elimina Definitivamente", use_container_width=True):
-                    with st.spinner("Eliminazione in corso..."):
-                        df_libri = df_libri[df_libri['isbn'].astype(str) != isbn_selezionato]
-                        conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
-                        st.success("✅ Volume rimosso dal database!")
-                        st.rerun()
+            if st.button("🗑️ Elimina Definitivamente", type="secondary"):
+                with st.spinner("Eliminazione in corso..."):
+                    df_libri = df_libri[df_libri['isbn'].astype(str) != isbn_selezionato]
+                    conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
+                    st.success("✅ Volume rimosso dal database!")
+                    st.rerun()
     else:
         st.info("💡 Database vuoto.")
-
 # --- TAB 2: AGGIUNGI LIBRO (FORM) ---
 with tab2:
     with st.form("form_aggiunta", clear_on_submit=True):
