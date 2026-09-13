@@ -89,21 +89,55 @@ with tab1:
         with col_m3: st.metric(label="Sedi Utilizzate", value=df_libri['luogo'].nunique())
     
     st.markdown("### 🔍 Esplora e Gestisci Catalogo")
-    search_query = st.text_input(
-        "Ricerca Multi-Filtro (es. 'rossi roma 2022' per filtrare autore, luogo e anno in un colpo solo)", 
-        placeholder="Digita uno o più criteri..."
-    ).lower()
+    
+    # Barra di ricerca testuale generale
+    search_query = st.text_input("Ricerca testuale (Titolo, Autore, ISBN...)", placeholder="Digita qui per cercare...").lower()
+    
+    df_filtrato = df_libri.copy() if not df_libri.empty else pd.DataFrame()
     
     if not df_libri.empty:
-        df_filtrato = df_libri.copy()
+        # Tasto/Pannello per i Filtri Avanzati
+        with st.expander("🛠️ Apri Filtri Avanzati (Lingua, Posizione...)"):
+            # Funzione per estrarre solo i valori unici reali (ignorando caselle vuote o errori)
+            def ottieni_unici(nome_colonna):
+                valori = [str(x).strip() for x in df_libri[nome_colonna].dropna().unique()]
+                return sorted(list(set(v for v in valori if v not in ["", "None", "nan"])))
+            
+            # Layout a 5 colonne per i filtri
+            col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
+            with col_f1:
+                filtro_lingua = st.multiselect("Lingua", options=ottieni_unici('lingua'))
+            with col_f2:
+                filtro_stanza = st.multiselect("Stanza", options=ottieni_unici('stanza'))
+            with col_f3:
+                filtro_libreria = st.multiselect("Libreria", options=ottieni_unici('libreria'))
+            with col_f4:
+                filtro_riga = st.multiselect("Riga", options=ottieni_unici('riga'))
+            with col_f5:
+                filtro_colonna = st.multiselect("Colonna", options=ottieni_unici('colonna'))
+                
+        # --- LOGICA DI FILTRAGGIO INCROCIATO ---
         
-        # LOGICA DI RICERCA MULTIPLA (AND)
+        # 1. Filtro testuale (come prima, spezza le parole)
         if search_query:
             termini = search_query.split()
             for termine in termini:
                 mask = df_filtrato.astype(str).apply(lambda x: x.str.lower().str.contains(termine)).any(axis=1)
                 df_filtrato = df_filtrato[mask]
-            
+        
+        # 2. Filtri del pannello avanzato (Applica solo se l'utente ha selezionato qualcosa)
+        if filtro_lingua:
+            df_filtrato = df_filtrato[df_filtrato['lingua'].astype(str).str.strip().isin(filtro_lingua)]
+        if filtro_stanza:
+            df_filtrato = df_filtrato[df_filtrato['stanza'].astype(str).str.strip().isin(filtro_stanza)]
+        if filtro_libreria:
+            df_filtrato = df_filtrato[df_filtrato['libreria'].astype(str).str.strip().isin(filtro_libreria)]
+        if filtro_riga:
+            df_filtrato = df_filtrato[df_filtrato['riga'].astype(str).str.strip().isin(filtro_riga)]
+        if filtro_colonna:
+            df_filtrato = df_filtrato[df_filtrato['colonna'].astype(str).str.strip().isin(filtro_colonna)]
+
+        # --- FORMATTAZIONE VISIVA (Unione testi multipli) ---
         def comprimi_su_righe(row, cols):
             valori = [str(row[c]).strip() for c in cols if pd.notna(row[c]) and str(row[c]).strip() not in ["", "None", "nan"]]
             if len(valori) == 0: return ""
@@ -130,6 +164,7 @@ with tab1:
         df_display['colonna'] = df_filtrato.get('colonna', '')
         df_display['note'] = df_filtrato.apply(lambda r: comprimi_su_righe(r, ['note1', 'note2']), axis=1)
 
+        # Rendering tabella
         st.dataframe(
             df_display, 
             use_container_width=True, 
@@ -146,9 +181,8 @@ with tab1:
         
         if selezione:
             isbn_selezionato = selezione.split(" - ")[0]
-            st.caption("Scorri lateralmente la tabella qui sotto per modificare i singoli campi. L'ISBN è bloccato per evitare corruzioni.")
+            st.caption("Modifica le celle direttamente nella tabella sottostante. L'ISBN è bloccato.")
             
-            # Crea un editor interattivo per la singola riga selezionata
             df_riga = df_libri[df_libri['isbn'].astype(str) == isbn_selezionato].copy()
             df_modificato = st.data_editor(df_riga, hide_index=True, use_container_width=True, disabled=["isbn"])
             
@@ -156,7 +190,6 @@ with tab1:
             with col_btn1:
                 if st.button("💾 Applica Modifiche", type="primary", use_container_width=True):
                     with st.spinner("Salvataggio..."):
-                        # Sostituisce la vecchia riga con quella appena modificata
                         indice = df_libri.index[df_libri['isbn'].astype(str) == isbn_selezionato].tolist()[0]
                         df_libri.iloc[indice] = df_modificato.iloc[0]
                         conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
@@ -165,8 +198,7 @@ with tab1:
                         
             with col_btn2:
                 if st.button("🗑️ Elimina Definitivamente", use_container_width=True):
-                    with st.spinner("Eliminazione..."):
-                        # Rimuove la riga dal dataset
+                    with st.spinner("Eliminazione in corso..."):
                         df_libri = df_libri[df_libri['isbn'].astype(str) != isbn_selezionato]
                         conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
                         st.success("✅ Volume rimosso dal database!")
