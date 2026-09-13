@@ -2,9 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 import re
-import pdfplumber
-import tempfile
-import os
+import fitz  
 from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURAZIONE PAGINA ---
