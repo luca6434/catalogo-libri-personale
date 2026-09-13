@@ -93,20 +93,16 @@ with tab1:
     
     st.markdown("### 🔍 Esplora e Gestisci Catalogo")
     
-    # Barra di ricerca testuale generale
     search_query = st.text_input("Ricerca testuale (Titolo, Autore, ISBN...)", placeholder="Digita qui per cercare...").lower()
     
     df_filtrato = df_libri.copy() if not df_libri.empty else pd.DataFrame()
     
     if not df_libri.empty:
-        # Tasto/Pannello per i Filtri Avanzati
         with st.expander("🛠️ Apri Filtri Avanzati (Lingua, Posizione...)"):
-            # Funzione per estrarre solo i valori unici reali (ignorando caselle vuote o errori)
             def ottieni_unici(nome_colonna):
                 valori = [str(x).strip() for x in df_libri[nome_colonna].dropna().unique()]
                 return sorted(list(set(v for v in valori if v not in ["", "None", "nan"])))
             
-            # Layout a 5 colonne per i filtri
             col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
             with col_f1:
                 filtro_lingua = st.multiselect("Lingua", options=ottieni_unici('lingua'))
@@ -119,16 +115,12 @@ with tab1:
             with col_f5:
                 filtro_colonna = st.multiselect("Colonna", options=ottieni_unici('colonna'))
                 
-        # --- LOGICA DI FILTRAGGIO INCROCIATO ---
-        
-        # 1. Filtro testuale (come prima, spezza le parole)
         if search_query:
             termini = search_query.split()
             for termine in termini:
                 mask = df_filtrato.astype(str).apply(lambda x: x.str.lower().str.contains(termine)).any(axis=1)
                 df_filtrato = df_filtrato[mask]
         
-        # 2. Filtri del pannello avanzato (Applica solo se l'utente ha selezionato qualcosa)
         if filtro_lingua:
             df_filtrato = df_filtrato[df_filtrato['lingua'].astype(str).str.strip().isin(filtro_lingua)]
         if filtro_stanza:
@@ -140,7 +132,6 @@ with tab1:
         if filtro_colonna:
             df_filtrato = df_filtrato[df_filtrato['colonna'].astype(str).str.strip().isin(filtro_colonna)]
 
-        # --- FORMATTAZIONE VISIVA (Unione testi multipli) ---
         def comprimi_su_righe(row, cols):
             valori = [str(row[c]).strip() for c in cols if pd.notna(row[c]) and str(row[c]).strip() not in ["", "None", "nan"]]
             if len(valori) == 0: return ""
@@ -167,7 +158,6 @@ with tab1:
         df_display['colonna'] = df_filtrato.get('colonna', '')
         df_display['note'] = df_filtrato.apply(lambda r: comprimi_su_righe(r, ['note1', 'note2']), axis=1)
 
-        # Rendering tabella
         st.dataframe(
             df_display, 
             use_container_width=True, 
@@ -175,7 +165,6 @@ with tab1:
             column_config={"isbn": "Isbn", "cognome": "cognome", "nome": "nome", "titolo1": "titolo(1)", "titolo2": "titolo(2)", "editore": "editore", "edi": "edi.", "acq": "Acq.", "lingua": "Lingua", "argomento1": "argomento", "argomento2": "argomento", "argomento3": "argomento", "luogo": "luogo", "stanza": "stanza", "libreria": "libreria", "riga": "riga", "colonna": "colonna", "note": "note"}
         )
         
-        # --- SEZIONE MODIFICA E RIMOZIONE ---
         st.divider()
         st.markdown("**⚙️ Modifica o Elimina Volume**")
         
@@ -187,7 +176,18 @@ with tab1:
             st.caption("Modifica le celle direttamente nella tabella sottostante. L'ISBN è bloccato.")
             
             df_riga = df_libri[df_libri['isbn'].astype(str) == isbn_selezionato].copy()
-            df_modificato = st.data_editor(df_riga, hide_index=True, use_container_width=True, disabled=["isbn"])
+            
+            # SBLOCCO CAMPI: Forza il dataframe a essere testo puro e disabilita le restrizioni di formato
+            df_riga = df_riga.fillna("").astype(str).replace(["nan", "None", "<NA>", "NaT"], "")
+            configurazione_testo = {col: st.column_config.TextColumn(col) for col in df_riga.columns}
+            
+            df_modificato = st.data_editor(
+                df_riga, 
+                hide_index=True, 
+                use_container_width=True, 
+                disabled=["isbn"],
+                column_config=configurazione_testo
+            )
             
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
@@ -196,7 +196,6 @@ with tab1:
                         indice = df_libri.index[df_libri['isbn'].astype(str) == isbn_selezionato].tolist()[0]
                         df_libri.iloc[indice] = df_modificato.iloc[0]
                         
-                        # Ordinamento alfabetico prima di salvare le modifiche in linea
                         df_libri.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
                         
                         conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
@@ -293,7 +292,6 @@ with tab3:
             try:
                 libri_trovati = []
                 
-                # Apre il PDF leggendolo direttamente in memoria in modo efficientissimo
                 doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
                 totale_pagine = len(doc)
                 
@@ -304,14 +302,10 @@ with tab3:
                     status_text.text(f"Analisi geometria della tabella: Pagina {num_pagina + 1} di {totale_pagine}...")
                     progress_bar.progress((num_pagina + 1) / totale_pagine)
                     
-                    # Funzione nativa e leggerissima per trovare le tabelle
                     tabelle = pagina.find_tables()
                     
                     for tabella in tabelle:
-                        # Estrae la griglia sotto forma di lista di liste
                         dati = tabella.extract()
-                        
-                        # Salta l'intestazione se l'utente lo ha richiesto
                         dati_utili = dati[1:] if ha_intestazione and num_pagina == 0 else dati
                         
                         for riga in dati_utili:
@@ -340,7 +334,6 @@ with tab3:
                                         
                                 libri_trovati.append(libro)
                                 
-                # Chiusura sicura del documento per liberare la RAM istantaneamente
                 doc.close()
                 status_text.empty()
                 progress_bar.empty()
@@ -367,7 +360,6 @@ with tab3:
                                         df_aggiornato[col] = ""
                                 df_aggiornato = df_aggiornato[COLONNE]
                                 
-                                # Ordinamento alfabetico prima del salvataggio massivo
                                 df_aggiornato.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
                                 
                                 conn.update(worksheet="Foglio1", data=df_aggiornato, spreadsheet=SPREADSHEET_URL)
