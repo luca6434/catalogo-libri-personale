@@ -11,6 +11,23 @@ st.set_page_config(page_title="Gestione Catalogo Libri", page_icon="📘", layou
 # --- CSS PERSONALIZZATO ---
 st.markdown("""
 <style>
+/* INGRANDIMENTO BARRE DI SCORRIMENTO */
+    ::-webkit-scrollbar { 
+        width: 16px !important; 
+        height: 16px !important; 
+    }
+    ::-webkit-scrollbar-track { 
+        background: #f1f3f5; 
+        border-radius: 8px; 
+    }
+    ::-webkit-scrollbar-thumb { 
+        background: #cdd2d6; 
+        border-radius: 8px; 
+        border: 3px solid #f1f3f5; 
+    }
+    ::-webkit-scrollbar-thumb:hover { 
+        background: #a5b1ba; 
+    }
     .stApp { background-color: #f4f6f9; }
     div[data-testid="metric-container"] {
         background-color: #ffffff; border: 1px solid #e1e4e8;
