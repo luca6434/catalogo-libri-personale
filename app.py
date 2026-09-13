@@ -62,7 +62,7 @@ def aggiungi_libro(dati_libro):
     
     for col in COLONNE:
         if col not in df_aggiornato.columns:
-            df_aggiornato[col] =  
+            df_aggiornato[col] =  None
             
     df_aggiornato = df_aggiornato[COLONNE]
     
