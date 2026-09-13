@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from PyPDF2 import PdfReader
+import pdfplumber
 import datetime
 from streamlit_gsheets import GSheetsConnection
 import re
@@ -226,97 +226,99 @@ with tab2:
                 if successo: st.success(f"✅ {msg}")
                 else: st.error(f"❌ {msg}")
 
-# --- TAB 3: CARICA DA PDF (Estrazione Completa) ---
+# --- TAB 3: CARICA DA PDF (Motore pdfplumber) ---
 with tab3:
-    st.markdown("### 📂 Importazione Massiva Dettagliata")
-    st.markdown("Carica un catalogo in PDF. Per suddividere correttamente i dati (Titolo, Autore, ecc.), indica il carattere che separa le colonne nel tuo documento.")
+    st.markdown("### 📂 Importazione Automatica Tabellare")
+    st.markdown("Il sistema usa il motore visivo **pdfplumber** per scansionare le griglie del PDF e separare le celle con precisione chirurgica.")
     
-    col_sep1, col_sep2 = st.columns([1, 2])
-    with col_sep1:
-        # L'utente può definire come sono separati i dati nel suo PDF specifico
-        separatore = st.text_input("Carattere separatore (es. ; oppure |)", value=";")
+    # Opzione per saltare l'intestazione
+    ha_intestazione = st.checkbox("La prima riga del PDF contiene i titoli delle colonne?", value=True)
     
     uploaded_file = st.file_uploader("Seleziona File (.pdf)", type="pdf")
     
     if uploaded_file is not None:
-        with st.spinner("Estrazione, decodifica e mappatura del documento in corso..."):
+        with st.spinner("Scansione geometrica delle tabelle in corso (potrebbe richiedere qualche secondo)..."):
             try:
                 import re
-                reader = PdfReader(uploaded_file)
-                testo_estratto = ""
-                for page in reader.pages:
-                    testo_estratto += page.extract_text() + "\n"
-                
-                # Dividiamo l'intero testo in singole righe
-                righe = testo_estratto.split('\n')
                 libri_trovati = []
                 
-                for riga in righe:
-                    # 1. Cerca un ISBN valido in questa specifica riga
-                    isbn_match = re.search(r'(?:97[89])?\d{9}[\dX]', riga.replace("-", ""), re.IGNORECASE)
-                    
-                    if isbn_match:
-                        isbn = isbn_match.group(0)
+                # Apre il PDF direttamente come oggetto file
+                with pdfplumber.open(uploaded_file) as pdf:
+                    for num_pagina, pagina in enumerate(pdf.pages):
+                        # Estrae tutte le tabelle trovate nella pagina
+                        tabelle = pagina.extract_tables()
                         
-                        # 2. Suddivide la riga usando il separatore scelto dall'utente
-                        campi_estratti = [c.strip() for c in riga.split(separatore)]
-                        
-                        # 3. Creiamo un nuovo libro vuoto (tutte le 23 colonne a None/Vuoto)
-                        libro = {col: "" for col in COLONNE}
-                        
-                        # 4. Inserimento "Best Effort": abbina i pezzi tagliati alle colonne, nell'ordine esatto
-                        # Presuppone che l'ordine delle colonne nel PDF sia uguale a quello di COLONNE
-                        for i, nome_colonna in enumerate(COLONNE):
-                            if i < len(campi_estratti):
-                                # Assicuriamoci che l'ISBN salvato sia quello puro trovato dalla Regex
-                                if nome_colonna == 'isbn':
-                                    libro[nome_colonna] = str(isbn)
-                                else:
-                                    libro[nome_colonna] = campi_estratti[i]
-                            elif nome_colonna == 'isbn':
-                                # Fallback nel caso in cui lo split fallisca ma abbiamo l'ISBN
-                                libro[nome_colonna] = str(isbn)
+                        for tabella in tabelle:
+                            # Se l'utente ha spuntato "ha intestazione", saltiamo la prima riga della prima tabella
+                            dati = tabella[1:] if ha_intestazione and num_pagina == 0 else tabella
+                            
+                            for riga in dati:
+                                # Ignora righe totalmente vuote
+                                if not riga or all(cella is None or str(cella).strip() == "" for cella in riga):
+                                    continue
                                 
-                        libri_trovati.append(libro)
-                
+                                # Pulisce i ritorni a capo (\n) che a volte si creano nelle celle del PDF
+                                riga_pulita = [str(cella).replace('\n', ' ').strip() if cella else "" for cella in riga]
+                                
+                                # Verifica che sia un libro reale cercando un ISBN tra le celle
+                                isbn_trovato = ""
+                                for cella in riga_pulita:
+                                    match = re.search(r'(?:97[89])?\d{9}[\dX]', cella.replace("-", "").replace(" ", ""), re.IGNORECASE)
+                                    if match:
+                                        isbn_trovato = match.group(0)
+                                        break
+                                
+                                if isbn_trovato:
+                                    # Crea un libro vuoto base
+                                    libro = {col: "" for col in COLONNE}
+                                    
+                                    # Abbina ordinatamente le celle lette dal PDF alle nostre 23 colonne
+                                    for indice_col, nome_col in enumerate(COLONNE):
+                                        if indice_col < len(riga_pulita):
+                                            if nome_col == 'isbn':
+                                                libro[nome_col] = str(isbn_trovato)
+                                            else:
+                                                libro[nome_col] = riga_pulita[indice_col]
+                                        elif nome_col == 'isbn':
+                                            libro[nome_col] = str(isbn_trovato)
+                                            
+                                    libri_trovati.append(libro)
+                                    
                 if libri_trovati:
-                    st.success(f"✅ Analisi completata: trovati e decodificati {len(libri_trovati)} libri!")
+                    st.success(f"✅ Scansione completata: trovati e mappati {len(libri_trovati)} libri!")
                     
-                    # Mostriamo un'anteprima ESATTA di come verranno salvati su Google Sheets
+                    # Anteprima
                     df_trovati = pd.DataFrame(libri_trovati)
                     st.dataframe(df_trovati, use_container_width=True, hide_index=True)
                     
-                    st.info("💡 Controlla l'anteprima qui sopra. Se i dati sono mescolati o sfasati, significa che il PDF non usa il separatore indicato, oppure l'ordine delle colonne nel PDF è diverso da quello del database.")
+                    st.info("💡 L'algoritmo ha abbinato in ordine le colonne del PDF con le colonne del database. Verifica l'anteprima prima di salvare.")
                     
-                    # BOTTONE DI SALVATAGGIO CLOUD
+                    # BOTTONE DI SALVATAGGIO
                     if st.button("💾 Conferma e Salva Dati nel Database", use_container_width=True):
                         with st.spinner("Sincronizzazione massiva con Google Sheets..."):
                             df_corrente = carica_dati()
                             isbn_esistenti = df_corrente['isbn'].astype(str).tolist() if not df_corrente.empty else []
                             
-                            # Filtra solo i libri che non sono già presenti nel database
+                            # Evitiamo doppioni
                             nuovi_inserimenti = [l for l in libri_trovati if str(l['isbn']) not in isbn_esistenti]
                             
                             if nuovi_inserimenti:
                                 df_nuovi = pd.DataFrame(nuovi_inserimenti)
                                 df_aggiornato = pd.concat([df_corrente, df_nuovi], ignore_index=True)
                                 
-                                # Blinda l'ordine delle colonne per evitare crash su Google Sheets
                                 for col in COLONNE:
                                     if col not in df_aggiornato.columns:
                                         df_aggiornato[col] = ""
                                 df_aggiornato = df_aggiornato[COLONNE]
                                 
                                 conn.update(worksheet="Foglio1", data=df_aggiornato, spreadsheet=SPREADSHEET_URL)
-                                st.success(f"🎉 Sincronizzazione perfetta! {len(nuovi_inserimenti)} nuovi volumi completi aggiunti al catalogo.")
+                                st.success(f"🎉 Sincronizzazione perfetta! {len(nuovi_inserimenti)} volumi aggiunti al catalogo.")
                                 st.balloons()
                             else:
-                                st.warning("⚠️ Operazione annullata: Tutti gli ISBN trovati in questo PDF sono già archiviati nel tuo database.")
+                                st.warning("⚠️ Operazione annullata: Tutti gli ISBN trovati in questo PDF sono già archiviati.")
                                 
                 else:
-                    st.warning("⚠️ Nessun libro trovato. Assicurati che il PDF contenga codici ISBN validi.")
-                    with st.expander("Visualizza il testo grezzo (Per capire come lo legge Python)"):
-                        st.text(testo_estratto)
-                        
+                    st.warning("⚠️ Non è stata trovata nessuna tabella strutturata contenente codici ISBN in questo PDF.")
+                    
             except Exception as e:
-                st.error(f"Errore critico durante la decodifica del PDF: {e}")
+                st.error(f"Errore critico durante l'estrazione geometrica del PDF: {e}")
