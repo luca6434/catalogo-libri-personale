@@ -226,45 +226,97 @@ with tab2:
                 if successo: st.success(f"✅ {msg}")
                 else: st.error(f"❌ {msg}")
 
-# --- TAB 3: CARICA DA PDF ---
+# --- TAB 3: CARICA DA PDF (Estrazione Completa) ---
 with tab3:
-    st.markdown("### 📂 Importazione Automatica ISBN")
-    st.markdown("Carica un PDF. Il sistema analizzerà il testo grezzo usando espressioni regolari per isolare i codici ISBN all'interno del documento.")
+    st.markdown("### 📂 Importazione Massiva Dettagliata")
+    st.markdown("Carica un catalogo in PDF. Per suddividere correttamente i dati (Titolo, Autore, ecc.), indica il carattere che separa le colonne nel tuo documento.")
+    
+    col_sep1, col_sep2 = st.columns([1, 2])
+    with col_sep1:
+        # L'utente può definire come sono separati i dati nel suo PDF specifico
+        separatore = st.text_input("Carattere separatore (es. ; oppure |)", value=";")
     
     uploaded_file = st.file_uploader("Seleziona File (.pdf)", type="pdf")
     
     if uploaded_file is not None:
-        with st.spinner("Analisi del documento in corso..."):
+        with st.spinner("Estrazione, decodifica e mappatura del documento in corso..."):
             try:
+                import re
                 reader = PdfReader(uploaded_file)
                 testo_estratto = ""
                 for page in reader.pages:
                     testo_estratto += page.extract_text() + "\n"
                 
-                # 1. Pulizia: rimuoviamo trattini e spazi per uniformare la ricerca
-                testo_pulito = testo_estratto.replace("-", "").replace(" ", "")
+                # Dividiamo l'intero testo in singole righe
+                righe = testo_estratto.split('\n')
+                libri_trovati = []
                 
-                # 2. Regex: Cerca sequenze di 13 cifre (inizio 978/979) o 10 cifre
-                pattern_isbn = r'(?:97[89])?\d{9}[\dX]'
-                isbn_trovati = re.findall(pattern_isbn, testo_pulito, re.IGNORECASE)
+                for riga in righe:
+                    # 1. Cerca un ISBN valido in questa specifica riga
+                    isbn_match = re.search(r'(?:97[89])?\d{9}[\dX]', riga.replace("-", ""), re.IGNORECASE)
+                    
+                    if isbn_match:
+                        isbn = isbn_match.group(0)
+                        
+                        # 2. Suddivide la riga usando il separatore scelto dall'utente
+                        campi_estratti = [c.strip() for c in riga.split(separatore)]
+                        
+                        # 3. Creiamo un nuovo libro vuoto (tutte le 23 colonne a None/Vuoto)
+                        libro = {col: "" for col in COLONNE}
+                        
+                        # 4. Inserimento "Best Effort": abbina i pezzi tagliati alle colonne, nell'ordine esatto
+                        # Presuppone che l'ordine delle colonne nel PDF sia uguale a quello di COLONNE
+                        for i, nome_colonna in enumerate(COLONNE):
+                            if i < len(campi_estratti):
+                                # Assicuriamoci che l'ISBN salvato sia quello puro trovato dalla Regex
+                                if nome_colonna == 'isbn':
+                                    libro[nome_colonna] = str(isbn)
+                                else:
+                                    libro[nome_colonna] = campi_estratti[i]
+                            elif nome_colonna == 'isbn':
+                                # Fallback nel caso in cui lo split fallisca ma abbiamo l'ISBN
+                                libro[nome_colonna] = str(isbn)
+                                
+                        libri_trovati.append(libro)
                 
-                # 3. Elimina i doppioni generati leggendo più pagine
-                isbn_unici = list(set(isbn_trovati))
-                
-                if isbn_unici:
-                    st.success(f"✅ Analisi completata: trovati {len(isbn_unici)} codici ISBN unici!")
+                if libri_trovati:
+                    st.success(f"✅ Analisi completata: trovati e decodificati {len(libri_trovati)} libri!")
                     
-                    # Creiamo una tabella temporanea per mostrarli
-                    df_trovati = pd.DataFrame(isbn_unici, columns=["ISBN Rilevati"])
-                    st.dataframe(df_trovati, use_container_width=True)
+                    # Mostriamo un'anteprima ESATTA di come verranno salvati su Google Sheets
+                    df_trovati = pd.DataFrame(libri_trovati)
+                    st.dataframe(df_trovati, use_container_width=True, hide_index=True)
                     
-                    st.info("💡 Questi codici sono pronti per essere elaborati.")
+                    st.info("💡 Controlla l'anteprima qui sopra. Se i dati sono mescolati o sfasati, significa che il PDF non usa il separatore indicato, oppure l'ordine delle colonne nel PDF è diverso da quello del database.")
                     
-                    with st.expander("Visualizza il testo grezzo (Debug)"):
+                    # BOTTONE DI SALVATAGGIO CLOUD
+                    if st.button("💾 Conferma e Salva Dati nel Database", use_container_width=True):
+                        with st.spinner("Sincronizzazione massiva con Google Sheets..."):
+                            df_corrente = carica_dati()
+                            isbn_esistenti = df_corrente['isbn'].astype(str).tolist() if not df_corrente.empty else []
+                            
+                            # Filtra solo i libri che non sono già presenti nel database
+                            nuovi_inserimenti = [l for l in libri_trovati if str(l['isbn']) not in isbn_esistenti]
+                            
+                            if nuovi_inserimenti:
+                                df_nuovi = pd.DataFrame(nuovi_inserimenti)
+                                df_aggiornato = pd.concat([df_corrente, df_nuovi], ignore_index=True)
+                                
+                                # Blinda l'ordine delle colonne per evitare crash su Google Sheets
+                                for col in COLONNE:
+                                    if col not in df_aggiornato.columns:
+                                        df_aggiornato[col] = ""
+                                df_aggiornato = df_aggiornato[COLONNE]
+                                
+                                conn.update(worksheet="Foglio1", data=df_aggiornato, spreadsheet=SPREADSHEET_URL)
+                                st.success(f"🎉 Sincronizzazione perfetta! {len(nuovi_inserimenti)} nuovi volumi completi aggiunti al catalogo.")
+                                st.balloons()
+                            else:
+                                st.warning("⚠️ Operazione annullata: Tutti gli ISBN trovati in questo PDF sono già archiviati nel tuo database.")
+                                
+                else:
+                    st.warning("⚠️ Nessun libro trovato. Assicurati che il PDF contenga codici ISBN validi.")
+                    with st.expander("Visualizza il testo grezzo (Per capire come lo legge Python)"):
                         st.text(testo_estratto)
                         
-                else:
-                    st.warning("⚠️ Nessun codice ISBN valido rilevato all'interno del testo.")
-                    
             except Exception as e:
-                st.error(f"Errore critico durante la lettura del PDF: {e}")
+                st.error(f"Errore critico durante la decodifica del PDF: {e}")
