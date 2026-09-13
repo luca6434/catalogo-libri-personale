@@ -66,9 +66,12 @@ def aggiungi_libro(dati_libro):
             
     df_aggiornato = df_aggiornato[COLONNE]
     
+    # Ordinamento alfabetico prima di salvare
+    df_aggiornato.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
+    
     try:
         conn.update(worksheet="Foglio1", data=df_aggiornato, spreadsheet=SPREADSHEET_URL)
-        return True, "Libro inserito correttamente a sistema."
+        return True, "Libro inserito e riordinato correttamente a sistema."
     except Exception as e:
         return False, f"Errore durante il salvataggio: {e}"
 
@@ -192,6 +195,10 @@ with tab1:
                     with st.spinner("Salvataggio..."):
                         indice = df_libri.index[df_libri['isbn'].astype(str) == isbn_selezionato].tolist()[0]
                         df_libri.iloc[indice] = df_modificato.iloc[0]
+                        
+                        # Ordinamento alfabetico prima di salvare le modifiche in linea
+                        df_libri.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
+                        
                         conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
                         st.success("✅ Modifiche salvate con successo!")
                         st.rerun()
@@ -205,6 +212,7 @@ with tab1:
                         st.rerun()
     else:
         st.info("💡 Database vuoto.")
+
 # --- TAB 2: AGGIUNGI LIBRO (FORM) ---
 with tab2:
     with st.form("form_aggiunta", clear_on_submit=True):
@@ -359,8 +367,11 @@ with tab3:
                                         df_aggiornato[col] = ""
                                 df_aggiornato = df_aggiornato[COLONNE]
                                 
+                                # Ordinamento alfabetico prima del salvataggio massivo
+                                df_aggiornato.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
+                                
                                 conn.update(worksheet="Foglio1", data=df_aggiornato, spreadsheet=SPREADSHEET_URL)
-                                st.success(f"🎉 Sincronizzazione perfetta! {len(nuovi_inserimenti)} volumi aggiunti.")
+                                st.success(f"🎉 Sincronizzazione perfetta! {len(nuovi_inserimenti)} volumi aggiunti e riordinati.")
                                 st.balloons()
                             else:
                                 st.warning("⚠️ Operazione annullata: Tutti gli ISBN trovati in questo PDF sono già archiviati.")
@@ -369,4 +380,3 @@ with tab3:
                     
             except Exception as e:
                 st.error(f"Errore critico durante l'estrazione: {e}")
-                
