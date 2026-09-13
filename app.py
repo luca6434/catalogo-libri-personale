@@ -82,7 +82,6 @@ st.divider()
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard & Ricerca", "📝 Inserimento Manuale", "📂 Importazione Massiva (PDF)"])
 
 # --- TAB 1: RICERCA, DASHBOARD E GESTIONE ---
-# --- TAB 1: RICERCA, DASHBOARD E GESTIONE ---
 with tab1:
     df_libri = carica_dati()
     
@@ -125,12 +124,16 @@ with tab1:
         if filtro_riga: df_filtrato = df_filtrato[df_filtrato['riga'].astype(str).str.strip().isin(filtro_riga)]
         if filtro_colonna: df_filtrato = df_filtrato[df_filtrato['colonna'].astype(str).str.strip().isin(filtro_colonna)]
 
-        # --- TABELLA INTERATTIVA ---
-        st.info("💡 **Fai doppio clic su qualsiasi cella della tabella per modificarla.** L'ISBN è bloccato per sicurezza.")
-        
-        # Sblocca tutte le celle trattandole come testo per permettere modifiche libere (date, numeri, ecc.)
+        # --- PREPARAZIONE DATI SENZA DECIMALI ---
         df_filtrato = df_filtrato.fillna("").astype(str).replace(["nan", "None", "<NA>", "NaT"], "")
+        for col in df_filtrato.columns:
+            # Rimuove ".0" alla fine dei numeri ma lascia intatto il testo
+            df_filtrato[col] = df_filtrato[col].str.replace(r'\.0$', '', regex=True)
+            
         configurazione_testo = {col: st.column_config.TextColumn(col) for col in df_filtrato.columns}
+
+       # --- TABELLA INTERATTIVA (AUTOSALVATAGGIO) ---
+        st.info("💡 **Doppio clic sulle celle per modificarle.** Il salvataggio avverrà in automatico non appena confermi la modifica (premendo Invio o cliccando fuori dalla cella).")
         
         df_modificato = st.data_editor(
             df_filtrato, 
@@ -138,39 +141,80 @@ with tab1:
             use_container_width=True, 
             disabled=["isbn"],
             column_config=configurazione_testo,
-            height=600  # Altezza maggiorata
+            height=600
         )
         
-        # BOTTONE DI SALVATAGGIO MODIFICHE
-        if st.button("💾 Salva Modifiche effettuate in Tabella", type="primary", use_container_width=True):
-            with st.spinner("Sincronizzazione in corso..."):
-                # Allinea i dati usando l'ISBN come punto di riferimento e aggiorna il foglio master
-                df_libri_idx = df_libri.set_index("isbn")
-                df_mod_idx = df_modificato.set_index("isbn")
+        # CONTROLLO SALVATAGGIO AUTOMATICO
+        if not df_filtrato.equals(df_modificato):
+            with st.spinner("🔄 Salvataggio automatico in corso..."):
+                # 1. Identifica gli ISBN dei libri visualizzati e modificati
+                isbns_modificati = df_modificato['isbn'].astype(str).tolist()
                 
-                df_libri_idx.update(df_mod_idx)
-                df_libri = df_libri_idx.reset_index()
+                # 2. Rimuovi le vecchie versioni di questi libri dal dataset principale
+                df_libri = df_libri[~df_libri['isbn'].astype(str).isin(isbns_modificati)]
+                
+                # 3. Aggiungi i record appena modificati
+                df_libri = pd.concat([df_libri, df_modificato], ignore_index=True)
+                
+                # 4. Riordina colonne e ordine alfabetico
+                for col in COLONNE:
+                    if col not in df_libri.columns:
+                        df_libri[col] = ""
+                df_libri = df_libri[COLONNE]
                 
                 df_libri.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
                 
                 conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
-                st.success("✅ Tutte le modifiche sono state salvate con successo!")
                 st.rerun()
-        
-        # --- RIMOZIONE DEFINITIVA (Mantenuta separata per sicurezza) ---
+                
+        # --- SEZIONE MODIFICA ISBN E RIMOZIONE ---
         st.divider()
-        st.markdown("**🗑️ Eliminazione Volume**")
+        st.markdown("**⚙️ Gestione Avanzata (Modifica ISBN o Elimina)**")
         opzioni = df_filtrato['isbn'].astype(str) + " - " + df_filtrato['titolo1'].astype(str)
-        selezione = st.selectbox("Se devi rimuovere un libro, selezionalo qui:", options=[""] + list(opzioni))
+        selezione = st.selectbox("Seleziona un volume per correggere l'ISBN o rimuoverlo:", options=[""] + list(opzioni))
         
         if selezione:
             isbn_selezionato = selezione.split(" - ")[0]
-            if st.button("🗑️ Elimina Definitivamente", type="secondary"):
-                with st.spinner("Eliminazione in corso..."):
-                    df_libri = df_libri[df_libri['isbn'].astype(str) != isbn_selezionato]
-                    conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
-                    st.success("✅ Volume rimosso dal database!")
-                    st.rerun()
+            st.caption("In questa riga puoi modificare liberamente anche il codice ISBN.")
+            
+            df_riga = df_libri[df_libri['isbn'].astype(str) == isbn_selezionato].copy()
+            df_riga = df_riga.fillna("").astype(str).replace(["nan", "None", "<NA>", "NaT"], "")
+            for col in df_riga.columns:
+                df_riga[col] = df_riga[col].str.replace(r'\.0$', '', regex=True)
+                
+            # QUI L'ISBN E' SBLOCCATO
+            df_modificato_singolo = st.data_editor(
+                df_riga, 
+                hide_index=True, 
+                use_container_width=True, 
+                column_config=configurazione_testo
+            )
+            
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("💾 Applica Modifica Avanzata", type="primary", use_container_width=True):
+                    with st.spinner("Salvataggio..."):
+                        nuovo_isbn = str(df_modificato_singolo.iloc[0]['isbn']).strip()
+                        indice = df_libri.index[df_libri['isbn'].astype(str) == isbn_selezionato].tolist()[0]
+                        
+                        # Controllo anti-doppioni sul nuovo ISBN
+                        if nuovo_isbn != isbn_selezionato and nuovo_isbn in df_libri['isbn'].astype(str).values:
+                            st.error(f"⚠️ Impossibile salvare: l'ISBN {nuovo_isbn} è già associato a un altro volume!")
+                        else:
+                            df_libri.iloc[indice] = df_modificato_singolo.iloc[0]
+                            df_libri.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
+                            
+                            conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
+                            st.success("✅ Modifica avanzata salvata con successo!")
+                            st.rerun()
+                            
+            with col_btn2:
+                if st.button("🗑️ Elimina Definitivamente", type="secondary", use_container_width=True):
+                    with st.spinner("Eliminazione in corso..."):
+                        df_libri = df_libri[df_libri['isbn'].astype(str) != isbn_selezionato]
+                        conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
+                        st.success("✅ Volume rimosso dal database!")
+                        st.rerun()
     else:
         st.info("💡 Database vuoto.")
 # --- TAB 2: AGGIUNGI LIBRO (FORM) ---
