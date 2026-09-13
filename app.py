@@ -1,9 +1,11 @@
 import streamlit as st
 import pandas as pd
-import pdfplumber
 import datetime
-from streamlit_gsheets import GSheetsConnection
 import re
+import pdfplumber
+import tempfile
+import os
+from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Gestione Catalogo Libri", page_icon="📘", layout="wide")
