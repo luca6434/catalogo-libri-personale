@@ -28,7 +28,7 @@ st.markdown("""
 conn = st.connection("gsheets", type=GSheetsConnection)
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1Zn9mqWmS1KAlttSTr55lwA5eS_vjuHIPAh5qF3lMO_E/edit?usp=sharing"
 
-COLONNE = ['isbn', 'cognome1', 'nome1', 'cognome2', 'nome2', 'cognome3', 'nome3', 
+COLONNE = ['isbn', 'cognome1', 'cognome2', 'cognome3', 'nome1', 'nome2', 'nome3', 
            'titolo1', 'titolo2', 'editore', 'edi', 'acq', 'lingua', 
            'argomento1', 'argomento2', 'argomento3', 'luogo', 'stanza', 
            'libreria', 'riga', 'colonna', 'note1', 'note2']
@@ -135,12 +135,18 @@ with tab1:
        # --- TABELLA INTERATTIVA (AUTOSALVATAGGIO) ---
         st.info("💡 **Doppio clic sulle celle per modificarle.** Il salvataggio avverrà in automatico non appena confermi la modifica (premendo Invio o cliccando fuori dalla cella).")
         
+        ordine_visivo = ['isbn', 'cognome1', 'nome1', 'cognome2', 'nome2', 'cognome3', 'nome3', 
+                         'titolo1', 'titolo2', 'editore', 'edi', 'acq', 'lingua', 
+                         'argomento1', 'argomento2', 'argomento3', 'luogo', 'stanza', 
+                         'libreria', 'riga', 'colonna', 'note1', 'note2']
+                         
         df_modificato = st.data_editor(
             df_filtrato, 
             hide_index=True, 
             use_container_width=True, 
             disabled=["isbn"],
             column_config=configurazione_testo,
+            column_order=ordine_visivo,
             height=600
         )
         
@@ -187,7 +193,8 @@ with tab1:
                 df_riga, 
                 hide_index=True, 
                 use_container_width=True, 
-                column_config=configurazione_testo
+                column_config=configurazione_testo,
+                column_order=ordine_visivo
             )
             
             col_btn1, col_btn2 = st.columns(2)
