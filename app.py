@@ -178,7 +178,16 @@ with tab1:
             df_libri.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
             
             conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
+            # ... (codice precedente di riordino)
+            df_libri.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
             
+            # Invio dati a Google Sheets
+            conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
+            
+            # AGGIORNA L'ORARIO NELLA MEMORIA DI SESSIONE
+            st.session_state['orario_modifica'] = datetime.datetime.now().strftime("%d/%m/%Y - %H:%M:%S")
+            
+            st.toast("Modifica salvata in background!", icon="✅")
             # Sostituiamo st.rerun() con una notifica visiva non invasiva
             st.toast("Modifica salvata in background!", icon="✅")
                 
