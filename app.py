@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import re
-import fitz  
+import re 
 from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURAZIONE PAGINA ---
