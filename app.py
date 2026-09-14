@@ -75,7 +75,13 @@ def aggiungi_libro(dati_libro):
         return False, f"Errore durante il salvataggio: {e}"
 
 # --- HEADER DELL'APPLICAZIONE ---
-st.title("📘 Sistema di Gestione Libreria (Cloud Edition)")
+col_titolo, col_modifica = st.columns([3, 1])
+with col_titolo:
+    st.title("📘 Sistema di Gestione Libreria (Cloud Edition)")
+with col_modifica:
+    # Registra l'orario esatto ad ogni ricaricamento/salvataggio
+    ora_attuale = datetime.datetime.now().strftime("%d/%m/%Y - %H:%M:%S")
+    st.markdown(f"<div style='text-align: right; padding-top: 35px; color: #6c757d; font-size: 0.95rem;'>🔄 Ultima modifica: <br><b>{ora_attuale}</b></div>", unsafe_allow_html=True)
 st.divider()
 
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard & Ricerca", "📝 Inserimento Manuale", "📂 Importazione Massiva (PDF)"])
