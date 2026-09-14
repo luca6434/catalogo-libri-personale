@@ -75,15 +75,18 @@ def aggiungi_libro(dati_libro):
         return False, f"Errore durante il salvataggio: {e}"
 
 # --- HEADER DELL'APPLICAZIONE ---
-# --- HEADER DELL'APPLICAZIONE ---
-if 'orario_modifica' not in st.session_state:
-    st.session_state['orario_modifica'] = "Nessuna in questa sessione"
+try:
+    # Cerca di leggere l'ultimo salvataggio dal cloud
+    df_meta = conn.read(worksheet="Metadata", ttl=0)
+    orario_salvato = str(df_meta.iloc[0]["Ultima Modifica"])
+except:
+    orario_salvato = "Nessuna modifica registrata"
 
 col_titolo, col_modifica = st.columns([3, 1])
 with col_titolo:
     st.title("📘 Sistema di Gestione Libreria (Cloud Edition)")
 with col_modifica:
-    st.markdown(f"<div style='text-align: right; padding-top: 35px; color: #6c757d; font-size: 0.95rem;'>🔄 Ultima modifica: <br><b>{st.session_state['orario_modifica']}</b></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align: right; padding-top: 35px; color: #6c757d; font-size: 0.95rem;'>🔄 Ultima modifica: <br><b>{orario_salvato}</b></div>", unsafe_allow_html=True)
 st.divider()
 
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard & Ricerca", "📝 Inserimento Manuale", "📂 Importazione Massiva (PDF)"])
@@ -178,17 +181,17 @@ with tab1:
             df_libri.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
             
             conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
-            # ... (codice precedente di riordino)
+            # ... (codice precedente di riordino dataframe) ...
             df_libri.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
             
-            # Invio dati a Google Sheets
+            # 1. Salva i libri
             conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
             
-            # AGGIORNA L'ORARIO NELLA MEMORIA DI SESSIONE
-            st.session_state['orario_modifica'] = datetime.datetime.now().strftime("%d/%m/%Y - %H:%M:%S")
+            # 2. SALVATAGGIO ORARIO PERMANENTE (Fuso orario Italiano UTC+2)
+            ora_italiana = (datetime.datetime.utcnow() + datetime.timedelta(hours=2)).strftime("%d/%m/%Y - %H:%M:%S")
+            df_orario = pd.DataFrame([{"Ultima Modifica": ora_italiana}])
+            conn.update(worksheet="Metadata", data=df_orario, spreadsheet=SPREADSHEET_URL)
             
-            st.toast("Modifica salvata in background!", icon="✅")
-            # Sostituiamo st.rerun() con una notifica visiva non invasiva
             st.toast("Modifica salvata in background!", icon="✅")
                 
         # --- SEZIONE MODIFICA ISBN E RIMOZIONE ---
