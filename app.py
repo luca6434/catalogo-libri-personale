@@ -132,7 +132,7 @@ with tab1:
         configurazione_testo = {col: st.column_config.TextColumn(col) for col in df_filtrato.columns}
 
        # --- TABELLA INTERATTIVA (AUTOSALVATAGGIO) ---
-        st.info("💡 **Doppio clic sulle celle per modificarle.** Il salvataggio avverrà in automatico non appena confermi la modifica (premendo Invio o cliccando fuori dalla cella).")
+        st.info("💡 **Doppio clic sulle celle per modificarle.** Il salvataggio avverrà in automatico in background e la tabella non tornerà più all'inizio.")
         
         ordine_visivo = ['isbn', 'cognome1', 'nome1', 'cognome2', 'nome2', 'cognome3', 'nome3', 
                          'titolo1', 'titolo2', 'editore', 'edi', 'acq', 'lingua', 
@@ -146,31 +146,33 @@ with tab1:
             disabled=["isbn"],
             column_config=configurazione_testo,
             column_order=ordine_visivo,
-            height=600
+            height=600,
+            key="tabella_principale"  # Blocca in memoria l'interfaccia e la posizione di scorrimento
         )
         
         # CONTROLLO SALVATAGGIO AUTOMATICO
         if not df_filtrato.equals(df_modificato):
-            with st.spinner("🔄 Salvataggio automatico in corso..."):
-                # 1. Identifica gli ISBN dei libri visualizzati e modificati
-                isbns_modificati = df_modificato['isbn'].astype(str).tolist()
-                
-                # 2. Rimuovi le vecchie versioni di questi libri dal dataset principale
-                df_libri = df_libri[~df_libri['isbn'].astype(str).isin(isbns_modificati)]
-                
-                # 3. Aggiungi i record appena modificati
-                df_libri = pd.concat([df_libri, df_modificato], ignore_index=True)
-                
-                # 4. Riordina colonne e ordine alfabetico
-                for col in COLONNE:
-                    if col not in df_libri.columns:
-                        df_libri[col] = ""
-                df_libri = df_libri[COLONNE]
-                
-                df_libri.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
-                
-                conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
-                st.rerun()
+            # 1. Identifica gli ISBN dei libri visualizzati e modificati
+            isbns_modificati = df_modificato['isbn'].astype(str).tolist()
+            
+            # 2. Rimuovi le vecchie versioni di questi libri dal dataset principale
+            df_libri = df_libri[~df_libri['isbn'].astype(str).isin(isbns_modificati)]
+            
+            # 3. Aggiungi i record appena modificati
+            df_libri = pd.concat([df_libri, df_modificato], ignore_index=True)
+            
+            # 4. Riordina colonne e ordine alfabetico
+            for col in COLONNE:
+                if col not in df_libri.columns:
+                    df_libri[col] = ""
+            df_libri = df_libri[COLONNE]
+            
+            df_libri.sort_values(by=['cognome1', 'nome1', 'titolo1'], key=lambda col: col.astype(str).str.lower().str.strip(), inplace=True, ignore_index=True)
+            
+            conn.update(worksheet="Foglio1", data=df_libri, spreadsheet=SPREADSHEET_URL)
+            
+            # Sostituiamo st.rerun() con una notifica visiva non invasiva
+            st.toast("Modifica salvata in background!", icon="✅")
                 
         # --- SEZIONE MODIFICA ISBN E RIMOZIONE ---
         st.divider()
